@@ -1,14 +1,35 @@
 {
   "name": "triton-usage",
   "version": "0.2.1",
-  "description": "CLI to monitor LiteLLM/TritonAI API key spend and usage",
+  "description": "CLI to monitor API key spend and usage on TritonAI or any LiteLLM proxy",
   "type": "module",
   "bin": {
     "triton-usage": "./dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    ".triton-usage.example.jsonc"
   ],
+  "keywords": [
+    "tritonai",
+    "litellm",
+    "usage",
+    "spend",
+    "monitoring",
+    "cli",
+    "claude-code",
+    "ccusage"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jsmillerucsd/triton-usage.git"
+  },
+  "homepage": "https://github.com/jsmillerucsd/triton-usage#readme",
+  "bugs": {
+    "url": "https://github.com/jsmillerucsd/triton-usage/issues"
+  },
+  "license": "MIT",
+  "author": "jsmillerucsd",
   "engines": {
     "node": ">=18"
   },
@@ -20,7 +41,6 @@
   },
   "dependencies": {
     "chalk": "^5.3.0",
-    "cliui": "^8.0.1",
     "commander": "^12.1.0"
   },
   "devDependencies": {
