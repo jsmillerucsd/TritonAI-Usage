@@ -7,3 +7,7 @@ dist/
 .vscode/
 .idea/
 *.tgz
+
+# Local config with real API keys — never commit
+.triton-usage.json
+.triton-usage.jsonc

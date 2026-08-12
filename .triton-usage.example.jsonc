@@ -1,0 +1,13 @@
+{
+  // TritonAI / LiteLLM base URL (optional; defaults to https://tritonai-api.ucsd.edu)
+  "base_url": "https://tritonai-api.ucsd.edu",
+
+  // Named keys — add one entry per API key you want to track.
+  // The key name (left side) shows up in the dashboard. Example:
+  //   "jude":        "sk-...",
+  //   "ci-bot":      "sk-...",
+  //   "team-alice":  "sk-..."
+  "keys": {
+    "default": "sk-REPLACE-ME"
+  }
+}

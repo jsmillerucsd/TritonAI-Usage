@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const DEFAULT_BASE_URL = "https://tritonai-api.ucsd.edu";
 
@@ -22,21 +23,44 @@ interface ConfigFile {
 const CONFIG_FILENAMES = [".triton-usage.json", ".triton-usage.jsonc"];
 
 function readConfigFile(): ConfigFile | null {
-  const home = homedir();
-  for (const name of CONFIG_FILENAMES) {
-    const path = join(home, name);
-    try {
-      const raw = readFileSync(path, "utf8");
-      // Strip single-line // comments for .jsonc support
-      const stripped = raw.replace(/^\s*\/\/.*$/gm, "");
-      return JSON.parse(stripped) as ConfigFile;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw new Error(`Failed to read ${path}: ${(err as Error).message}`);
+  const searchDirs = configSearchDirs();
+  for (const dir of searchDirs) {
+    for (const name of CONFIG_FILENAMES) {
+      const path = join(dir, name);
+      try {
+        const raw = readFileSync(path, "utf8");
+        // Strip single-line // comments for .jsonc support
+        const stripped = raw.replace(/^\s*\/\/.*$/gm, "");
+        return JSON.parse(stripped) as ConfigFile;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw new Error(`Failed to read ${path}: ${(err as Error).message}`);
+        }
       }
     }
   }
   return null;
+}
+
+function configSearchDirs(): string[] {
+  const dirs: string[] = [];
+
+  // 1. Current working directory (project-local config)
+  dirs.push(process.cwd());
+
+  // 2. Repo root — adjacent to the compiled entry point (dist/) or src/
+  try {
+    const entry = fileURLToPath(import.meta.url);
+    // Walk up from src/ or dist/ to the repo root
+    dirs.push(dirname(dirname(entry)));
+  } catch {
+    // import.meta.url unavailable — skip
+  }
+
+  // 3. Home directory (user-global config)
+  dirs.push(homedir());
+
+  return dirs;
 }
 
 function keysFromEnv(): KeyEntry[] {
@@ -77,7 +101,8 @@ export function loadConfig(): Config {
   if (keys.length === 0) {
     throw new Error(
       "No API keys configured. Set TRITONAI_KEY / TRITONAI_KEY_<NAME> env vars " +
-        "or create ~/.triton-usage.json with a `keys` object.",
+        "or create .triton-usage.jsonc in the repo root, current directory, or " +
+        "your home directory with a `keys` object.",
     );
   }
 

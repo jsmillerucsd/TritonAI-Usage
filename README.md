@@ -51,9 +51,21 @@ TRITONAI_KEY_ALICE=sk-...
 
 ### Config file
 
-`~/.triton-usage.json` (or `.jsonc` — `//` comments allowed):
+`triton-usage` looks for `.triton-usage.json` (or `.jsonc`) in this order:
 
-```json
+1. **Current working directory** — project-local, easy to scope per project
+2. **Repo root** — next to `package.json`, so `npm run dev` picks it up
+3. **Home directory** — user-global fallback
+
+The first file found wins. Copy `.triton-usage.example.jsonc` to get started:
+
+```bash
+cp .triton-usage.example.jsonc .triton-usage.jsonc
+```
+
+Then edit it:
+
+```jsonc
 {
   "base_url": "https://tritonai-api.ucsd.edu",
   "keys": {
@@ -63,6 +75,9 @@ TRITONAI_KEY_ALICE=sk-...
   }
 }
 ```
+
+> **Note:** `.triton-usage.json` and `.triton-usage.jsonc` are gitignored so secrets
+> never get committed. The committed `.triton-usage.example.jsonc` is the template.
 
 ## Commands
 
