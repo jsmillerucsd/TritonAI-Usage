@@ -1,7 +1,11 @@
 import type { Config, KeyEntry } from "./config.js";
 
-export interface KeyInfo {
+export interface KeyInfoResponse {
   key: string;
+  info: KeyInfo;
+}
+
+export interface KeyInfo {
   key_alias: string | null;
   spend: number;
   max_budget: number | null;
@@ -17,14 +21,18 @@ export interface KeyInfo {
 }
 
 export interface SpendReportRow {
-  date?: string;
-  model?: string;
-  api_key?: string;
-  spend: number;
-  total_tokens: number;
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  call_count?: number;
+  api_key: string;
+  total_cost: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  model_details: ModelDetail[];
+}
+
+export interface ModelDetail {
+  model: string;
+  total_cost: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
 }
 
 interface LiteLLMResponse<T> {
@@ -76,7 +84,7 @@ async function request<T>(
 }
 
 export function getKeyInfo(config: Config, key: KeyEntry): Promise<KeyInfo> {
-  return request<KeyInfo>(config, key, "/key/info");
+  return request<KeyInfoResponse>(config, key, "/key/info").then((r) => r.info);
 }
 
 export function getKeySpendReport(

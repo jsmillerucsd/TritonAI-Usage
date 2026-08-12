@@ -2,7 +2,7 @@ import chalk from "chalk";
 import cliui from "cliui";
 import type { Config } from "../config.js";
 import { findKey } from "../config.js";
-import { getKeyInfo, getKeySpendReport, type SpendReportRow } from "../api.js";
+import { getKeyInfo, getKeySpendReport } from "../api.js";
 import {
   budgetBar,
   col,
@@ -12,27 +12,6 @@ import {
   formatNumber,
   today,
 } from "../format.js";
-
-interface ModelBreakdown {
-  model: string;
-  spend: number;
-  tokens: number;
-  calls: number;
-}
-
-function aggregateByModel(rows: SpendReportRow[]): ModelBreakdown[] {
-  const byModel = new Map<string, ModelBreakdown>();
-  for (const row of rows) {
-    const model = row.model ?? "(unknown)";
-    const entry =
-      byModel.get(model) ?? { model, spend: 0, tokens: 0, calls: 0 };
-    entry.spend += Number(row.spend ?? 0);
-    entry.tokens += Number(row.total_tokens ?? 0);
-    entry.calls += Number(row.call_count ?? 0);
-    byModel.set(model, entry);
-  }
-  return [...byModel.values()].sort((a, b) => b.spend - a.spend);
-}
 
 export async function reportCommand(
   config: Config,
@@ -72,42 +51,54 @@ export async function reportCommand(
   console.log();
 
   // Per-model breakdown
-  const rows = await getKeySpendReport(config, key, startDate, endDate);
-  if (rows.length === 0) {
+  const report = await getKeySpendReport(config, key, startDate, endDate);
+  if (report.length === 0) {
     console.log(chalk.yellow(`No spend in ${startDate} → ${endDate}`));
     return;
   }
 
-  const breakdown = aggregateByModel(rows);
-  const totalSpend = breakdown.reduce((s, r) => s + r.spend, 0);
-  const totalTokens = breakdown.reduce((s, r) => s + r.tokens, 0);
-  const totalCalls = breakdown.reduce((s, r) => s + r.calls, 0);
+  // The API returns one row per key; take the first (our key)
+  const row = report[0];
+  const details = row.model_details ?? [];
+  if (details.length === 0) {
+    console.log(chalk.yellow(`No model-level breakdown available.`));
+    return;
+  }
 
-  const ui = cliui({ width: 90 });
+  const totalSpend = row.total_cost ?? 0;
+  const totalInput = row.total_input_tokens ?? 0;
+  const totalOutput = row.total_output_tokens ?? 0;
+
+  // Sort by spend desc, filter out zero-spend models for cleaner display
+  const sorted = [...details]
+    .filter((d) => d.total_cost > 0 || d.total_input_tokens > 0)
+    .sort((a, b) => (b.total_cost ?? 0) - (a.total_cost ?? 0));
+
+  const ui = cliui({ width: 95 });
   ui.div(
-    col(chalk.bold("MODEL"), 40),
-    col(chalk.bold("CALLS"), 10, "right"),
-    col(chalk.bold("TOKENS"), 14, "right"),
+    col(chalk.bold("MODEL"), 36),
+    col(chalk.bold("INPUT TOK"), 14, "right"),
+    col(chalk.bold("OUTPUT TOK"), 14, "right"),
     col(chalk.bold("SPEND"), 12, "right"),
     col(chalk.bold("SHARE"), 10, "right"),
   );
-  ui.div(divider(90));
+  ui.div(divider(95));
 
-  for (const r of breakdown) {
-    const share = totalSpend > 0 ? (r.spend / totalSpend) * 100 : 0;
+  for (const d of sorted) {
+    const share = totalSpend > 0 ? ((d.total_cost ?? 0) / totalSpend) * 100 : 0;
     ui.div(
-      col(r.model, 40),
-      col(formatNumber(r.calls), 10, "right"),
-      col(formatNumber(r.tokens), 14, "right"),
-      col(formatCurrency(r.spend), 12, "right"),
+      col(d.model, 36),
+      col(formatNumber(d.total_input_tokens), 14, "right"),
+      col(formatNumber(d.total_output_tokens), 14, "right"),
+      col(formatCurrency(d.total_cost ?? 0), 12, "right"),
       col(`${share.toFixed(1)}%`, 10, "right"),
     );
   }
-  ui.div(divider(90));
+  ui.div(divider(95));
   ui.div(
-    col(chalk.bold("TOTAL"), 40),
-    col(chalk.bold(formatNumber(totalCalls)), 10, "right"),
-    col(chalk.bold(formatNumber(totalTokens)), 14, "right"),
+    col(chalk.bold("TOTAL"), 36),
+    col(chalk.bold(formatNumber(totalInput)), 14, "right"),
+    col(chalk.bold(formatNumber(totalOutput)), 14, "right"),
     col(chalk.bold(formatCurrency(totalSpend)), 12, "right"),
     col("", 10, "right"),
   );
