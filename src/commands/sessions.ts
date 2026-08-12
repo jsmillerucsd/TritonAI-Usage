@@ -71,7 +71,7 @@ export async function sessionsCommand(
   const keyName = opts.key ?? config.keys[0]?.name;
   const key = findKey(config, keyName ?? "");
   if (!key) throw new Error(`Key "${keyName}" not found.`);
-  const startDate = opts.start ?? daysAgo(14);
+  const startDate = opts.start ?? daysAgo(7);
   const endDate = opts.end ?? today();
   const limit = opts.limit ?? 20;
 

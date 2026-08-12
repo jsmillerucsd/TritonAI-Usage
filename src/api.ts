@@ -150,30 +150,41 @@ export async function getSpendLogs(
   key: KeyEntry,
   startDate: string,
   endDate: string,
-  maxPages = 50,
+  maxPages = 100,
 ): Promise<SpendLog[]> {
+  // The /spend/logs/v2 endpoint treats end_date as exclusive, so add 1 day
+  const [y, m, d] = endDate.split("-").map(Number);
+  const endNext = new Date(Date.UTC(y, m - 1, d + 1))
+    .toISOString()
+    .slice(0, 10);
+
   // First request to get total_pages
   const first = await request<SpendLogsResponse>(
     config,
     key,
     "/spend/logs/v2",
-    { start_date: startDate, end_date: endDate, page: "1", size: "100" },
+    { start_date: startDate, end_date: endNext, page: "1", size: "100" },
   );
   const totalPages = Math.min(first.total_pages ?? 1, maxPages);
   if (totalPages <= 1) return first.data ?? [];
 
-  // Fetch remaining pages in parallel
-  const pagePromises: Promise<SpendLogsResponse>[] = [];
-  for (let page = 2; page <= totalPages; page++) {
-    pagePromises.push(
-      request<SpendLogsResponse>(config, key, "/spend/logs/v2", {
-        start_date: startDate,
-        end_date: endDate,
-        page: String(page),
-        size: "100",
-      }),
-    );
+  // Fetch remaining pages in parallel batches of 5 to avoid overwhelming the API
+  const all: SpendLog[] = [...(first.data ?? [])];
+  for (let batchStart = 2; batchStart <= totalPages; batchStart += 5) {
+    const batchEnd = Math.min(batchStart + 4, totalPages);
+    const pagePromises: Promise<SpendLogsResponse>[] = [];
+    for (let page = batchStart; page <= batchEnd; page++) {
+      pagePromises.push(
+        request<SpendLogsResponse>(config, key, "/spend/logs/v2", {
+          start_date: startDate,
+          end_date: endNext,
+          page: String(page),
+          size: "100",
+        }),
+      );
+    }
+    const batch = await Promise.all(pagePromises);
+    all.push(...batch.flatMap((r) => r.data ?? []));
   }
-  const rest = await Promise.all(pagePromises);
-  return [...(first.data ?? []), ...rest.flatMap((r) => r.data ?? [])];
+  return all;
 }
