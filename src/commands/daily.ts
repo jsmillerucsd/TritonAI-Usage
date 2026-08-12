@@ -142,18 +142,30 @@ export async function dailyCommand(
       ]);
     }
     tableRows.push([divider(baseWidths.reduce((a, b) => a + b + 2, -2))]);
-    const totalSpend = logTotalSpend;
     const totalReqs = sortedDays.reduce((s, d) => s + d.requests, 0);
     tableRows.push([
       col(chalk.bold("TOTAL"), 12),
       col(chalk.bold(formatNumber(totalReqs)), 7, "right"),
-      col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
+      col(chalk.bold(formatCurrency(logTotalSpend)), 10, "right"),
       col("", 22),
       ...models.map((m) => {
         const total = sortedDays.reduce((s, d) => s + (d.byModel.get(m)?.spend ?? 0), 0);
         return col(chalk.bold(formatCurrency(total)), 18, "right");
       }),
     ]);
+    // If report covers more than logs, add a FULL RANGE row
+    if (reportTotal !== null && Math.abs(reportTotal - logTotalSpend) > 0.01) {
+      tableRows.push([
+        col(chalk.gray("FULL RANGE"), 12),
+        col(chalk.gray("—"), 7, "right"),
+        col(chalk.gray(formatCurrency(reportTotal)), 10, "right"),
+        col("", 22),
+        ...models.map((m) => {
+          const total = reportByModel.get(m) ?? 0;
+          return col(chalk.gray(total > 0 ? formatCurrency(total) : "—"), 18, "right");
+        }),
+      ]);
+    }
     console.log(renderTable(tableRows, baseWidths));
   } else {
     const widths = [12, 7, 12, 12, 12, 12, 10, 10, 22];
@@ -186,7 +198,6 @@ export async function dailyCommand(
       ]);
     }
     tableRows.push([divider(widths.reduce((a, b) => a + b + 2, -2))]);
-    const totalSpend = logTotalSpend;
     const totalReqs = sortedDays.reduce((s, d) => s + d.requests, 0);
     const totalInput = sortedDays.reduce((s, d) => s + d.inputTokens, 0);
     const totalOutput = sortedDays.reduce((s, d) => s + d.outputTokens, 0);
@@ -201,20 +212,32 @@ export async function dailyCommand(
       col(chalk.bold(formatNumber(totalCacheR)), 12, "right"),
       col(chalk.bold(formatNumber(totalCacheW)), 12, "right"),
       col(chalk.bold(formatCurrency(totalCacheCost)), 10, "right"),
-      col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
+      col(chalk.bold(formatCurrency(logTotalSpend)), 10, "right"),
       col("", 22),
     ]);
+    // If report covers more than logs, add a FULL RANGE row
+    if (reportTotal !== null && Math.abs(reportTotal - logTotalSpend) > 0.01) {
+      tableRows.push([
+        col(chalk.gray("FULL RANGE"), 12),
+        col(chalk.gray("—"), 7, "right"),
+        col(chalk.gray("—"), 12, "right"),
+        col(chalk.gray("—"), 12, "right"),
+        col(chalk.gray("—"), 12, "right"),
+        col(chalk.gray("—"), 12, "right"),
+        col(chalk.gray("—"), 10, "right"),
+        col(chalk.gray(formatCurrency(reportTotal)), 10, "right"),
+        col("", 22),
+      ]);
+    }
     console.log(renderTable(tableRows, widths));
   }
 
-  // Warn if logs don't cover the full range
+  // Note if logs don't cover the full range
   if (reportTotal !== null && Math.abs(reportTotal - logTotalSpend) > 0.01) {
     const daysWithData = sortedDays.length;
     const totalDays = Math.max(1, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1);
     console.log();
-    console.log(chalk.yellow(`  ⚠ Logs only cover ${daysWithData} of ${totalDays} days in this range.`));
-    console.log(chalk.gray(`  Full range spend (from report): ${formatCurrency(reportTotal)}`));
-    console.log(chalk.gray(`  Older per-request logs were pruned by the proxy.`));
-    console.log(chalk.gray(`  Run \`triton-usage report\` for the full aggregated breakdown.`));
+    console.log(chalk.gray(`  Logs cover ${daysWithData} of ${totalDays} days. FULL RANGE shows report totals.`));
+    console.log(chalk.gray(`  Run \`triton-usage report\` for the full per-model breakdown.`));
   }
 }
