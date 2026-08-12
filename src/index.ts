@@ -78,13 +78,9 @@ program
   });
 
 program.action(async () => {
-  try {
-    const config = loadConfig();
-    await dashboardCommand(config);
-  } catch (err) {
-    console.error(chalk.red(`Error: ${(err as Error).message}`));
-    process.exit(1);
-  }
+  // No subcommand given — show help instead of silently running dashboard
+  program.outputHelp();
+  process.exit(0);
 });
 
 program.parseAsync(process.argv);
