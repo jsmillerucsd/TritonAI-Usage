@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name("triton-usage")
   .description("Monitor TritonAI / LiteLLM API key spend and usage")
-  .version("0.2.0");
+  .version("0.2.1");
 
 program
   .command("dashboard")
