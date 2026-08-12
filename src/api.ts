@@ -35,6 +35,52 @@ export interface ModelDetail {
   total_output_tokens: number;
 }
 
+export interface SpendLog {
+  request_id: string;
+  call_type: string;
+  api_key: string;
+  spend: number;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  startTime: string;
+  endTime: string;
+  model: string;
+  model_group: string;
+  custom_llm_provider: string;
+  session_id: string | null;
+  status: string;
+  request_duration_ms: number;
+  cache_hit: string | null;
+  request_tags: string[];
+  end_user: string | null;
+  metadata: {
+    usage_object?: {
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+      prompt_tokens_details?: {
+        cached_tokens?: number;
+        cache_write_tokens?: number;
+      };
+    };
+    cost_breakdown?: {
+      input_cost?: number;
+      output_cost?: number;
+      cache_read_cost?: number;
+      cache_creation_cost?: number;
+    };
+  };
+}
+
+export interface SpendLogsResponse {
+  data: SpendLog[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  total_is_capped: boolean;
+}
+
 interface LiteLLMResponse<T> {
   data?: T;
   error?: { message: string; type?: string };
@@ -97,4 +143,25 @@ export function getKeySpendReport(
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   return request<SpendReportRow[]>(config, key, "/key/spend/report", params);
+}
+
+export async function getSpendLogs(
+  config: Config,
+  key: KeyEntry,
+  startDate: string,
+  endDate: string,
+  maxPages = 50,
+): Promise<SpendLog[]> {
+  const all: SpendLog[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const res = await request<SpendLogsResponse>(
+      config,
+      key,
+      "/spend/logs/v2",
+      { start_date: startDate, end_date: endDate, page: String(page), size: "100" },
+    );
+    all.push(...(res.data ?? []));
+    if (page >= (res.total_pages ?? 1)) break;
+  }
+  return all;
 }

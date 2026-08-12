@@ -4,14 +4,15 @@ import chalk from "chalk";
 import { loadConfig } from "./config.js";
 import { dashboardCommand } from "./commands/dashboard.js";
 import { reportCommand } from "./commands/report.js";
+import { dailyCommand } from "./commands/daily.js";
+import { sessionsCommand } from "./commands/sessions.js";
 
 const program = new Command();
 
 program
   .name("triton-usage")
   .description("Monitor TritonAI / LiteLLM API key spend and usage")
-  .version("0.1.0")
-  .option("--base-url <url>", "Override the LiteLLM API base URL");
+  .version("0.2.0");
 
 program
   .command("dashboard")
@@ -36,6 +37,40 @@ program
     try {
       const config = loadConfig();
       await reportCommand(config, opts);
+    } catch (err) {
+      console.error(chalk.red(`Error: ${(err as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+program
+  .command("daily")
+  .description("Daily usage breakdown with spend bars and token counts")
+  .option("-k, --key <name>", "Which configured key to use (defaults to first)")
+  .option("-s, --start <date>", "Start date YYYY-MM-DD (default: 14 days ago)")
+  .option("-e, --end <date>", "End date YYYY-MM-DD (default: today)")
+  .option("-m, --models", "Show per-model breakdown per day")
+  .action(async (opts: { key?: string; start?: string; end?: string; models?: boolean }) => {
+    try {
+      const config = loadConfig();
+      await dailyCommand(config, opts);
+    } catch (err) {
+      console.error(chalk.red(`Error: ${(err as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+program
+  .command("sessions")
+  .description("Per-session spend breakdown (like ccusage)")
+  .option("-k, --key <name>", "Which configured key to use (defaults to first)")
+  .option("-s, --start <date>", "Start date YYYY-MM-DD (default: 14 days ago)")
+  .option("-e, --end <date>", "End date YYYY-MM-DD (default: today)")
+  .option("-n, --limit <n>", "Max sessions to show (default: 20)", "20")
+  .action(async (opts: { key?: string; start?: string; end?: string; limit?: number }) => {
+    try {
+      const config = loadConfig();
+      await sessionsCommand(config, opts);
     } catch (err) {
       console.error(chalk.red(`Error: ${(err as Error).message}`));
       process.exit(1);

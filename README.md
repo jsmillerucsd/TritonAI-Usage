@@ -6,8 +6,10 @@ A small CLI to monitor **[TritonAI](https://tritonai-api.ucsd.edu/) / LiteLLM** 
 
 - **`triton-usage dashboard`** — multi-key overview: spend, budget, usage bar, last active, model count
 - **`triton-usage report`** — per-model spend breakdown for a single key over a date range
+- **`triton-usage daily`** — daily usage with spend bars, token counts (input/output/cache), and optional per-model matrix
+- **`triton-usage sessions`** — per-session breakdown (spend, tokens, duration, models) — like ccusage
 - Keys loaded from env vars **and/or** a JSON config file
-- No daemon, no database — just queries the LiteLLM `/key/info` and `/key/spend/report` endpoints
+- Queries LiteLLM `/key/info`, `/key/spend/report`, and `/spend/logs/v2` endpoints
 
 ## Quick start
 
@@ -113,14 +115,74 @@ claude-3-5-sonnet            58     485.3k      $2.6000    20.2%
 TOTAL                       200       1.7M     $12.8400
 ```
 
+### `triton-usage daily`
+
+Daily usage breakdown with spend bars and token counts (input, output, cache reads). Defaults to the last 14 days.
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-k, --key <name>` | first configured key | Which named key to use |
+| `-s, --start <date>` | 14 days ago | Start date (`YYYY-MM-DD`) |
+| `-e, --end <date>` | today | End date (`YYYY-MM-DD`) |
+| `-m, --models` | off | Show per-model spend per day |
+
+Example:
+
+```
+Daily Usage: spa-default
+Range: 2026-08-01 → 2026-08-12
+
+ DATE         REQS       INPUT      OUTPUT     CACHE R     SPEND  BAR
+────────────────────────────────────────────────────────────────────────
+ 2026-08-11    129      27.90M      314.0k      26.29M    $28.49  ████████████████████
+────────────────────────────────────────────────────────────────────────
+ TOTAL         129      27.90M      314.0k      26.29M    $28.49
+```
+
+With `--models`:
+
+```
+ DATE         REQS     SPEND  BAR                        claude-opus-5     claude-sonnet-5
+──────────────────────────────────────────────────────────────────────────────────────────
+ 2026-08-11    129    $28.49  ████████████████████              $24.68               $3.80
+──────────────────────────────────────────────────────────────────────────────────────────
+ TOTAL         129    $28.49                                    $24.68               $3.80
+```
+
+### `triton-usage sessions`
+
+Per-session spend breakdown — groups all requests by `session_id` so you can see how much each Claude Code / coding session cost. Like `ccusage`. Defaults to the last 14 days.
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-k, --key <name>` | first configured key | Which named key to use |
+| `-s, --start <date>` | 14 days ago | Start date (`YYYY-MM-DD`) |
+| `-e, --end <date>` | today | End date (`YYYY-MM-DD`) |
+| `-n, --limit <n>` | 20 | Max sessions to show |
+
+Example:
+
+```
+Sessions: spa-default
+Range: 2026-08-01 → 2026-08-12
+
+ SESSION   REQS      INPUT    OUTPUT    CACHE R  DURATION     SPEND  BAR                 MODELS
+──────────────────────────────────────────────────────────────────────────────────────────────────
+ cc27a8e1   128     27.90M    314.0k     26.29M    59m26s    $28.49  ████████████████████  claude-opus-5, claude-sonnet-5
+ 9d81b44d     1          0         0          0       0ms  $0.0000  ░                     —
+──────────────────────────────────────────────────────────────────────────────────────────────────
+ TOTAL (2)  129     27.90M    314.0k     26.29M            $28.49
+```
+
 ## How it works
 
-`triton-usage` calls two LiteLLM proxy endpoints:
+`triton-usage` calls three LiteLLM proxy endpoints:
 
 - [`GET /key/info`](https://docs.litellm.ai/docs/proxy/virtual_keys#key-info) — current spend, budget, models, last active
 - [`GET /key/spend/report`](https://docs.litellm.ai/docs/proxy/spend_tracking) — per-model spend over a date range
+- [`GET /spend/logs/v2`](https://docs.litellm.ai/docs/proxy/spend_tracking) — paginated per-request logs (used for daily and session views)
 
-Both are callable by the key itself (non-admin callers are auto-scoped to their own key), so you don't need a proxy admin key to use this tool — each named key just needs permission to view its own usage.
+All are callable by the key itself (non-admin callers are auto-scoped to their own key), so you don't need a proxy admin key — each named key just needs permission to view its own usage.
 
 ## Development
 
