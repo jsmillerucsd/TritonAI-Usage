@@ -22,11 +22,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/jsmillerucsd/triton-usage.git"
+    "url": "https://github.com/jsmillerucsd/TritonAI-Usage.git"
   },
-  "homepage": "https://github.com/jsmillerucsd/triton-usage#readme",
+  "homepage": "https://github.com/jsmillerucsd/TritonAI-Usage#readme",
   "bugs": {
-    "url": "https://github.com/jsmillerucsd/triton-usage/issues"
+    "url": "https://github.com/jsmillerucsd/TritonAI-Usage/issues"
   },
   "author": "jsmillerucsd",
   "engines": {

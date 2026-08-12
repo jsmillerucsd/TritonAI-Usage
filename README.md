@@ -21,7 +21,7 @@ triton-usage dashboard
 
 **Build from source:**
 ```bash
-git clone https://github.com/jsmillerucsd/triton-usage.git
+git clone https://github.com/jsmillerucsd/TritonAI-Usage.git
 cd triton-usage
 npm install
 npm run build
