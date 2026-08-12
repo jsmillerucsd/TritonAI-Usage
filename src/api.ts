@@ -145,12 +145,33 @@ export function getKeySpendReport(
   return request<SpendReportRow[]>(config, key, "/key/spend/report", params);
 }
 
+async function requestWithRetry<T>(
+  config: Config,
+  key: KeyEntry,
+  path: string,
+  params: Record<string, string> = {},
+  retries = 2,
+): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await request<T>(config, key, path, params);
+    } catch (err) {
+      if (attempt === retries) throw err;
+      const msg = (err as Error).message;
+      if (!msg.includes("API 500")) throw err;
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+  throw new Error("unreachable");
+}
+
 export async function getSpendLogs(
   config: Config,
   key: KeyEntry,
   startDate: string,
   endDate: string,
   maxPages = 100,
+  onProgress?: (fetched: number, total: number) => void,
 ): Promise<SpendLog[]> {
   // The /spend/logs/v2 endpoint treats end_date as exclusive, so add 1 day
   const [y, m, d] = endDate.split("-").map(Number);
@@ -159,23 +180,28 @@ export async function getSpendLogs(
     .slice(0, 10);
 
   // First request to get total_pages
-  const first = await request<SpendLogsResponse>(
+  const first = await requestWithRetry<SpendLogsResponse>(
     config,
     key,
     "/spend/logs/v2",
     { start_date: startDate, end_date: endNext, page: "1", size: "100" },
   );
   const totalPages = Math.min(first.total_pages ?? 1, maxPages);
-  if (totalPages <= 1) return first.data ?? [];
+  const totalCount = first.total ?? 0;
+  if (totalPages <= 1) {
+    onProgress?.(first.data?.length ?? 0, totalCount);
+    return first.data ?? [];
+  }
 
-  // Fetch remaining pages in parallel batches of 5 to avoid overwhelming the API
+  // Fetch remaining pages in parallel batches of 25 with retry on 500
   const all: SpendLog[] = [...(first.data ?? [])];
-  for (let batchStart = 2; batchStart <= totalPages; batchStart += 5) {
-    const batchEnd = Math.min(batchStart + 4, totalPages);
+  const batchSize = 25;
+  for (let batchStart = 2; batchStart <= totalPages; batchStart += batchSize) {
+    const batchEnd = Math.min(batchStart + batchSize - 1, totalPages);
     const pagePromises: Promise<SpendLogsResponse>[] = [];
     for (let page = batchStart; page <= batchEnd; page++) {
       pagePromises.push(
-        request<SpendLogsResponse>(config, key, "/spend/logs/v2", {
+        requestWithRetry<SpendLogsResponse>(config, key, "/spend/logs/v2", {
           start_date: startDate,
           end_date: endNext,
           page: String(page),
@@ -185,6 +211,7 @@ export async function getSpendLogs(
     }
     const batch = await Promise.all(pagePromises);
     all.push(...batch.flatMap((r) => r.data ?? []));
+    onProgress?.(all.length, totalCount);
   }
   return all;
 }

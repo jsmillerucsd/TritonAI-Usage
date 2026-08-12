@@ -1,54 +1,63 @@
 import chalk from "chalk";
 import type { Config } from "../config.js";
 import { findKey } from "../config.js";
-import { getSpendLogs, getKeySpendReport, type SpendLog } from "../api.js";
+import { getKeySpendReport } from "../api.js";
 import { col, daysAgo, divider, formatCurrency, formatNumber, renderTable, sparkBar, today, type Column } from "../format.js";
 
-interface DayBucket {
+interface DayReport {
   date: string;
   spend: number;
   inputTokens: number;
   outputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-  cacheReadCost: number;
-  cacheWriteCost: number;
-  requests: number;
-  byModel: Map<string, { spend: number; requests: number }>;
+  byModel: Map<string, number>;
 }
 
-function bucketByDay(logs: SpendLog[]): Map<string, DayBucket> {
-  const days = new Map<string, DayBucket>();
-  for (const log of logs) {
-    const day = log.startTime.slice(0, 10);
-    const bucket = days.get(day) ?? {
-      date: day,
-      spend: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      cacheReadCost: 0,
-      cacheWriteCost: 0,
-      requests: 0,
-      byModel: new Map(),
-    };
-    bucket.spend += log.spend ?? 0;
-    bucket.inputTokens += log.prompt_tokens ?? 0;
-    bucket.outputTokens += log.completion_tokens ?? 0;
-    bucket.cacheReadTokens += log.metadata?.usage_object?.cache_read_input_tokens ?? 0;
-    bucket.cacheWriteTokens += log.metadata?.usage_object?.cache_creation_input_tokens ?? 0;
-    bucket.cacheReadCost += log.metadata?.cost_breakdown?.cache_read_cost ?? 0;
-    bucket.cacheWriteCost += log.metadata?.cost_breakdown?.cache_creation_cost ?? 0;
-    bucket.requests += 1;
-    const model = log.model ?? "(unknown)";
-    const m = bucket.byModel.get(model) ?? { spend: 0, requests: 0 };
-    m.spend += log.spend ?? 0;
-    m.requests += 1;
-    bucket.byModel.set(model, m);
-    days.set(day, bucket);
+function dateRange(start: string, end: string): string[] {
+  const dates: string[] = [];
+  const [sy, sm, sd] = start.split("-").map(Number);
+  const [ey, em, ed] = end.split("-").map(Number);
+  const s = new Date(Date.UTC(sy, sm - 1, sd));
+  const e = new Date(Date.UTC(ey, em - 1, ed));
+  for (let d = new Date(s); d <= e; d.setUTCDate(d.getUTCDate() + 1)) {
+    dates.push(d.toISOString().slice(0, 10));
   }
-  return days;
+  return dates;
+}
+
+async function fetchDailyReports(
+  config: Config,
+  key: { name: string; apiKey: string },
+  dates: string[],
+): Promise<DayReport[]> {
+  const results: DayReport[] = [];
+
+  // Batch in groups of 7 to avoid overwhelming the API
+  for (let i = 0; i < dates.length; i += 7) {
+    const batch = dates.slice(i, i + 7);
+    const promises = batch.map(async (date) => {
+      try {
+        const report = await getKeySpendReport(config, key, date, date);
+        const row = report[0];
+        if (!row) return { date, spend: 0, inputTokens: 0, outputTokens: 0, byModel: new Map() };
+        const byModel = new Map<string, number>();
+        for (const d of row.model_details ?? []) {
+          if ((d.total_cost ?? 0) > 0) byModel.set(d.model, d.total_cost ?? 0);
+        }
+        return {
+          date,
+          spend: row.total_cost ?? 0,
+          inputTokens: row.total_input_tokens ?? 0,
+          outputTokens: row.total_output_tokens ?? 0,
+          byModel,
+        };
+      } catch {
+        return { date, spend: 0, inputTokens: 0, outputTokens: 0, byModel: new Map() };
+      }
+    });
+    const batchResults = await Promise.all(promises);
+    results.push(...batchResults);
+  }
+  return results.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export async function dailyCommand(
@@ -60,53 +69,29 @@ export async function dailyCommand(
   if (!key) throw new Error(`Key "${keyName}" not found.`);
   const startDate = opts.start ?? daysAgo(14);
   const endDate = opts.end ?? today();
+  const showModels = opts.models === true;
 
   console.log(chalk.bold.underline(`Daily Usage: ${key.name}`));
-  console.log(chalk.gray(`Range: ${startDate} → ${endDate}`));
+  console.log(chalk.gray(`Range: ${startDate} -> ${endDate}`));
   console.log();
 
-  const [logs, report] = await Promise.all([
-    getSpendLogs(config, key, startDate, endDate),
-    getKeySpendReport(config, key, startDate, endDate).catch(() => []),
-  ]);
+  const dates = dateRange(startDate, endDate);
 
-  // The report endpoint has the authoritative total (logs may have limited retention)
-  const reportTotal = report[0]?.total_cost ?? null;
-  // Per-model totals from the report (authoritative, covers full date range)
-  const reportByModel = new Map<string, number>();
-  for (const d of report[0]?.model_details ?? []) {
-    reportByModel.set(d.model, d.total_cost ?? 0);
-  }
+  // Fetch per-day reports (fast: one small API call per day, batched)
+  const reports = await fetchDailyReports(config, key, dates);
+  const activeDays = reports.filter((d) => d.spend > 0);
 
-  if (logs.length === 0) {
-    if (reportTotal !== null && reportTotal > 0) {
-      console.log(chalk.yellow(`No per-request logs available (retention limit).`));
-      console.log(chalk.gray(`Aggregated spend for this range: ${formatCurrency(reportTotal)}`));
-    } else {
-      console.log(chalk.yellow(`No requests in ${startDate} → ${endDate}`));
-    }
+  if (activeDays.length === 0) {
+    console.log(chalk.yellow(`No spend in ${startDate} -> ${endDate}`));
     return;
   }
 
-  const days = bucketByDay(logs);
-  const sortedDays = [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
-  const maxSpend = Math.max(...sortedDays.map((d) => d.spend), 0.01);
-  const logTotalSpend = sortedDays.reduce((s, d) => s + d.spend, 0);
-
-  const showModels = opts.models === true;
+  const maxSpend = Math.max(...activeDays.map((d) => d.spend), 0.01);
 
   if (showModels) {
+    // Collect all models across active days
     const allModels = new Set<string>();
-    // Models from logs (per-day breakdown)
-    for (const d of sortedDays) {
-      for (const [m, info] of d.byModel) {
-        if (info.spend > 0) allModels.add(m);
-      }
-    }
-    // Models from report (may include models only used outside the log retention window)
-    for (const m of reportByModel.keys()) {
-      if ((reportByModel.get(m) ?? 0) > 0) allModels.add(m);
-    }
+    for (const d of activeDays) for (const m of d.byModel.keys()) allModels.add(m);
     const models = [...allModels].sort((a, b) => {
       const ai = a.replace("vertex_ai/", "");
       const bi = b.replace("vertex_ai/", "");
@@ -117,127 +102,78 @@ export async function dailyCommand(
     });
 
     const modelColWidths = models.map(() => 18);
-    const baseWidths = [12, 7, 10, 22, ...modelColWidths];
+    const widths = [12, 10, 22, ...modelColWidths];
+    const sep = widths.reduce((a, b) => a + b + 2, -2);
     const tableRows: Column[][] = [
       [
         col(chalk.bold("DATE"), 12),
-        col(chalk.bold("REQS"), 7, "right"),
         col(chalk.bold("SPEND"), 10, "right"),
         col(chalk.bold("BAR"), 22),
         ...models.map((m) => col(chalk.bold(m.replace("vertex_ai/", "")), 18, "right")),
       ],
-      [divider(baseWidths.reduce((a, b) => a + b + 2, -2))],
+      [divider(sep)],
     ];
 
-    for (const d of sortedDays) {
+    for (const d of activeDays) {
       tableRows.push([
         col(d.date, 12),
-        col(formatNumber(d.requests), 7, "right"),
         col(formatCurrency(d.spend), 10, "right"),
         col(sparkBar(d.spend, maxSpend), 22),
         ...models.map((m) => {
-          const entry = d.byModel.get(m);
-          return col(entry ? formatCurrency(entry.spend) : "—", 18, "right");
+          const val = d.byModel.get(m);
+          return col(val ? formatCurrency(val) : "—", 18, "right");
         }),
       ]);
     }
-    tableRows.push([divider(baseWidths.reduce((a, b) => a + b + 2, -2))]);
-    const totalReqs = sortedDays.reduce((s, d) => s + d.requests, 0);
+    tableRows.push([divider(sep)]);
+    const totalSpend = activeDays.reduce((s, d) => s + d.spend, 0);
     tableRows.push([
       col(chalk.bold("TOTAL"), 12),
-      col(chalk.bold(formatNumber(totalReqs)), 7, "right"),
-      col(chalk.bold(formatCurrency(logTotalSpend)), 10, "right"),
+      col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
       col("", 22),
       ...models.map((m) => {
-        const total = sortedDays.reduce((s, d) => s + (d.byModel.get(m)?.spend ?? 0), 0);
+        const total = activeDays.reduce((s, d) => s + (d.byModel.get(m) ?? 0), 0);
         return col(chalk.bold(formatCurrency(total)), 18, "right");
       }),
     ]);
-    // If report covers more than logs, add a FULL RANGE row
-    if (reportTotal !== null && Math.abs(reportTotal - logTotalSpend) > 0.01) {
-      tableRows.push([
-        col(chalk.gray("FULL RANGE"), 12),
-        col(chalk.gray("—"), 7, "right"),
-        col(chalk.gray(formatCurrency(reportTotal)), 10, "right"),
-        col("", 22),
-        ...models.map((m) => {
-          const total = reportByModel.get(m) ?? 0;
-          return col(chalk.gray(total > 0 ? formatCurrency(total) : "—"), 18, "right");
-        }),
-      ]);
-    }
-    console.log(renderTable(tableRows, baseWidths));
+    console.log(renderTable(tableRows, widths));
   } else {
-    const widths = [12, 7, 12, 12, 12, 12, 10, 10, 22];
+    const widths = [12, 14, 14, 14, 10, 22];
+    const sep = widths.reduce((a, b) => a + b + 2, -2);
     const tableRows: Column[][] = [
       [
         col(chalk.bold("DATE"), 12),
-        col(chalk.bold("REQS"), 7, "right"),
-        col(chalk.bold("INPUT"), 12, "right"),
-        col(chalk.bold("OUTPUT"), 12, "right"),
-        col(chalk.bold("CACHE R"), 12, "right"),
-        col(chalk.bold("CACHE W"), 12, "right"),
-        col(chalk.bold("CACHE $"), 10, "right"),
+        col(chalk.bold("INPUT"), 14, "right"),
+        col(chalk.bold("OUTPUT"), 14, "right"),
+        col(chalk.bold("TOKENS"), 14, "right"),
         col(chalk.bold("SPEND"), 10, "right"),
         col(chalk.bold("BAR"), 22),
       ],
-      [divider(widths.reduce((a, b) => a + b + 2, -2))],
+      [divider(sep)],
     ];
 
-    for (const d of sortedDays) {
+    for (const d of activeDays) {
       tableRows.push([
         col(d.date, 12),
-        col(formatNumber(d.requests), 7, "right"),
-        col(formatNumber(d.inputTokens), 12, "right"),
-        col(formatNumber(d.outputTokens), 12, "right"),
-        col(formatNumber(d.cacheReadTokens), 12, "right"),
-        col(formatNumber(d.cacheWriteTokens), 12, "right"),
-        col(formatCurrency(d.cacheReadCost + d.cacheWriteCost), 10, "right"),
+        col(formatNumber(d.inputTokens), 14, "right"),
+        col(formatNumber(d.outputTokens), 14, "right"),
+        col(formatNumber(d.inputTokens + d.outputTokens), 14, "right"),
         col(formatCurrency(d.spend), 10, "right"),
         col(sparkBar(d.spend, maxSpend), 22),
       ]);
     }
-    tableRows.push([divider(widths.reduce((a, b) => a + b + 2, -2))]);
-    const totalReqs = sortedDays.reduce((s, d) => s + d.requests, 0);
-    const totalInput = sortedDays.reduce((s, d) => s + d.inputTokens, 0);
-    const totalOutput = sortedDays.reduce((s, d) => s + d.outputTokens, 0);
-    const totalCacheR = sortedDays.reduce((s, d) => s + d.cacheReadTokens, 0);
-    const totalCacheW = sortedDays.reduce((s, d) => s + d.cacheWriteTokens, 0);
-    const totalCacheCost = sortedDays.reduce((s, d) => s + d.cacheReadCost + d.cacheWriteCost, 0);
+    tableRows.push([divider(sep)]);
+    const totalSpend = activeDays.reduce((s, d) => s + d.spend, 0);
+    const totalInput = activeDays.reduce((s, d) => s + d.inputTokens, 0);
+    const totalOutput = activeDays.reduce((s, d) => s + d.outputTokens, 0);
     tableRows.push([
       col(chalk.bold("TOTAL"), 12),
-      col(chalk.bold(formatNumber(totalReqs)), 7, "right"),
-      col(chalk.bold(formatNumber(totalInput)), 12, "right"),
-      col(chalk.bold(formatNumber(totalOutput)), 12, "right"),
-      col(chalk.bold(formatNumber(totalCacheR)), 12, "right"),
-      col(chalk.bold(formatNumber(totalCacheW)), 12, "right"),
-      col(chalk.bold(formatCurrency(totalCacheCost)), 10, "right"),
-      col(chalk.bold(formatCurrency(logTotalSpend)), 10, "right"),
+      col(chalk.bold(formatNumber(totalInput)), 14, "right"),
+      col(chalk.bold(formatNumber(totalOutput)), 14, "right"),
+      col(chalk.bold(formatNumber(totalInput + totalOutput)), 14, "right"),
+      col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
       col("", 22),
     ]);
-    // If report covers more than logs, add a FULL RANGE row
-    if (reportTotal !== null && Math.abs(reportTotal - logTotalSpend) > 0.01) {
-      tableRows.push([
-        col(chalk.gray("FULL RANGE"), 12),
-        col(chalk.gray("—"), 7, "right"),
-        col(chalk.gray("—"), 12, "right"),
-        col(chalk.gray("—"), 12, "right"),
-        col(chalk.gray("—"), 12, "right"),
-        col(chalk.gray("—"), 12, "right"),
-        col(chalk.gray("—"), 10, "right"),
-        col(chalk.gray(formatCurrency(reportTotal)), 10, "right"),
-        col("", 22),
-      ]);
-    }
     console.log(renderTable(tableRows, widths));
-  }
-
-  // Note if logs don't cover the full range
-  if (reportTotal !== null && Math.abs(reportTotal - logTotalSpend) > 0.01) {
-    const daysWithData = sortedDays.length;
-    const totalDays = Math.max(1, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1);
-    console.log();
-    console.log(chalk.gray(`  Logs cover ${daysWithData} of ${totalDays} days. FULL RANGE shows report totals.`));
-    console.log(chalk.gray(`  Run \`triton-usage report\` for the full per-model breakdown.`));
   }
 }

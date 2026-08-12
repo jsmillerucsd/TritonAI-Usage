@@ -79,7 +79,11 @@ export async function sessionsCommand(
   console.log(chalk.gray(`Range: ${startDate} → ${endDate}`));
   console.log();
 
-  const logs = await getSpendLogs(config, key, startDate, endDate);
+  process.stderr.write(chalk.gray("  Fetching logs..."));
+  const logs = await getSpendLogs(config, key, startDate, endDate, 100, (fetched, total) => {
+    process.stderr.write(`\r  Fetching logs... ${fetched}/${total}`);
+  });
+  process.stderr.write(`\r${" ".repeat(60)}\r`);
   if (logs.length === 0) {
     console.log(chalk.yellow(`No requests in ${startDate} → ${endDate}`));
     return;
