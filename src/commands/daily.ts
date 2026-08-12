@@ -63,8 +63,6 @@ export async function dailyCommand(
 
   // The report endpoint has the authoritative total (logs may have limited retention)
   const reportTotal = report[0]?.total_cost ?? null;
-  const reportInput = report[0]?.total_input_tokens ?? null;
-  const reportOutput = report[0]?.total_output_tokens ?? null;
   // Per-model totals from the report (authoritative, covers full date range)
   const reportByModel = new Map<string, number>();
   for (const d of report[0]?.model_details ?? []) {
@@ -83,7 +81,7 @@ export async function dailyCommand(
 
   const days = bucketByDay(logs);
   const sortedDays = [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
-  const maxSpend = Math.max(...sortedDays.map((d) => d.spend));
+  const maxSpend = Math.max(...sortedDays.map((d) => d.spend), 0.01);
   const logTotalSpend = sortedDays.reduce((s, d) => s + d.spend, 0);
 
   const showModels = opts.models === true;
@@ -135,7 +133,7 @@ export async function dailyCommand(
       ]);
     }
     tableRows.push([divider(baseWidths.reduce((a, b) => a + b + 2, -2))]);
-    const totalSpend = reportTotal ?? logTotalSpend;
+    const totalSpend = logTotalSpend;
     const totalReqs = sortedDays.reduce((s, d) => s + d.requests, 0);
     tableRows.push([
       col(chalk.bold("TOTAL"), 12),
@@ -143,7 +141,7 @@ export async function dailyCommand(
       col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
       col("", 22),
       ...models.map((m) => {
-        const total = reportByModel.get(m) ?? sortedDays.reduce((s, d) => s + (d.byModel.get(m)?.spend ?? 0), 0);
+        const total = sortedDays.reduce((s, d) => s + (d.byModel.get(m)?.spend ?? 0), 0);
         return col(chalk.bold(formatCurrency(total)), 18, "right");
       }),
     ]);
@@ -175,10 +173,10 @@ export async function dailyCommand(
       ]);
     }
     tableRows.push([divider(widths.reduce((a, b) => a + b + 2, -2))]);
-    const totalSpend = reportTotal ?? logTotalSpend;
+    const totalSpend = logTotalSpend;
     const totalReqs = sortedDays.reduce((s, d) => s + d.requests, 0);
-    const totalInput = reportInput ?? sortedDays.reduce((s, d) => s + d.inputTokens, 0);
-    const totalOutput = reportOutput ?? sortedDays.reduce((s, d) => s + d.outputTokens, 0);
+    const totalInput = sortedDays.reduce((s, d) => s + d.inputTokens, 0);
+    const totalOutput = sortedDays.reduce((s, d) => s + d.outputTokens, 0);
     const totalCache = sortedDays.reduce((s, d) => s + d.cacheReadTokens, 0);
     tableRows.push([
       col(chalk.bold("TOTAL"), 12),
@@ -194,9 +192,12 @@ export async function dailyCommand(
 
   // Warn if logs don't cover the full range
   if (reportTotal !== null && Math.abs(reportTotal - logTotalSpend) > 0.01) {
+    const daysWithData = sortedDays.length;
+    const totalDays = Math.max(1, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1);
     console.log();
-    console.log(chalk.gray(`  Note: per-request logs total ${formatCurrency(logTotalSpend)} but`));
-    console.log(chalk.gray(`  aggregated spend is ${formatCurrency(reportTotal)}.`));
-    console.log(chalk.gray(`  Older logs may have been pruned by the proxy.`));
+    console.log(chalk.yellow(`  ⚠ Logs only cover ${daysWithData} of ${totalDays} days in this range.`));
+    console.log(chalk.gray(`  Full range spend (from report): ${formatCurrency(reportTotal)}`));
+    console.log(chalk.gray(`  Older per-request logs were pruned by the proxy.`));
+    console.log(chalk.gray(`  Run \`triton-usage report\` for the full aggregated breakdown.`));
   }
 }
