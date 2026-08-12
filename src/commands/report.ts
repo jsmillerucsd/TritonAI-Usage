@@ -1,17 +1,8 @@
 import chalk from "chalk";
-import cliui from "cliui";
 import type { Config } from "../config.js";
 import { findKey } from "../config.js";
 import { getKeyInfo, getKeySpendReport } from "../api.js";
-import {
-  budgetBar,
-  col,
-  daysAgo,
-  divider,
-  formatCurrency,
-  formatNumber,
-  today,
-} from "../format.js";
+import { budgetBar, col, daysAgo, divider, formatCurrency, formatNumber, renderTable, today, type Column } from "../format.js";
 
 export async function reportCommand(
   config: Config,
@@ -39,7 +30,6 @@ export async function reportCommand(
   console.log(chalk.gray(`Range: ${startDate} → ${endDate}`));
   console.log();
 
-  // Snapshot of current key info
   const info = await getKeyInfo(config, key);
   console.log(
     `${chalk.bold("Current spend:")} ${formatCurrency(info.spend ?? 0)} / ${info.max_budget !== null ? formatCurrency(info.max_budget) : "no budget"}`,
@@ -50,14 +40,12 @@ export async function reportCommand(
   );
   console.log();
 
-  // Per-model breakdown
   const report = await getKeySpendReport(config, key, startDate, endDate);
   if (report.length === 0) {
     console.log(chalk.yellow(`No spend in ${startDate} → ${endDate}`));
     return;
   }
 
-  // The API returns one row per key; take the first (our key)
   const row = report[0];
   const details = row.model_details ?? [];
   if (details.length === 0) {
@@ -69,38 +57,39 @@ export async function reportCommand(
   const totalInput = row.total_input_tokens ?? 0;
   const totalOutput = row.total_output_tokens ?? 0;
 
-  // Sort by spend desc, filter out zero-spend models for cleaner display
   const sorted = [...details]
     .filter((d) => d.total_cost > 0 || d.total_input_tokens > 0)
     .sort((a, b) => (b.total_cost ?? 0) - (a.total_cost ?? 0));
 
-  const ui = cliui({ width: 95 });
-  ui.div(
-    col(chalk.bold("MODEL"), 36),
-    col(chalk.bold("INPUT TOK"), 14, "right"),
-    col(chalk.bold("OUTPUT TOK"), 14, "right"),
-    col(chalk.bold("SPEND"), 12, "right"),
-    col(chalk.bold("SHARE"), 10, "right"),
-  );
-  ui.div(divider(95));
+  const widths = [36, 14, 14, 12, 10];
+  const tableRows: Column[][] = [
+    [
+      col(chalk.bold("MODEL"), 36),
+      col(chalk.bold("INPUT TOK"), 14, "right"),
+      col(chalk.bold("OUTPUT TOK"), 14, "right"),
+      col(chalk.bold("SPEND"), 12, "right"),
+      col(chalk.bold("SHARE"), 10, "right"),
+    ],
+    [divider(widths.reduce((a, b) => a + b + 2, -2))],
+  ];
 
   for (const d of sorted) {
     const share = totalSpend > 0 ? ((d.total_cost ?? 0) / totalSpend) * 100 : 0;
-    ui.div(
+    tableRows.push([
       col(d.model, 36),
       col(formatNumber(d.total_input_tokens), 14, "right"),
       col(formatNumber(d.total_output_tokens), 14, "right"),
       col(formatCurrency(d.total_cost ?? 0), 12, "right"),
       col(`${share.toFixed(1)}%`, 10, "right"),
-    );
+    ]);
   }
-  ui.div(divider(95));
-  ui.div(
+  tableRows.push([divider(widths.reduce((a, b) => a + b + 2, -2))]);
+  tableRows.push([
     col(chalk.bold("TOTAL"), 36),
     col(chalk.bold(formatNumber(totalInput)), 14, "right"),
     col(chalk.bold(formatNumber(totalOutput)), 14, "right"),
     col(chalk.bold(formatCurrency(totalSpend)), 12, "right"),
     col("", 10, "right"),
-  );
-  console.log(ui.toString());
+  ]);
+  console.log(renderTable(tableRows, widths));
 }

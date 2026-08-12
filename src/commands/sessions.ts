@@ -1,9 +1,8 @@
 import chalk from "chalk";
-import cliui from "cliui";
 import type { Config } from "../config.js";
 import { findKey } from "../config.js";
 import { getSpendLogs, type SpendLog } from "../api.js";
-import { col, daysAgo, divider, formatCurrency, formatNumber, today } from "../format.js";
+import { col, daysAgo, divider, formatCurrency, formatNumber, renderTable, today, type Column } from "../format.js";
 
 interface SessionBucket {
   sessionId: string;
@@ -16,7 +15,6 @@ interface SessionBucket {
   lastSeen: string;
   totalDurationMs: number;
   models: Map<string, number>;
-  userAgents: Set<string>;
 }
 
 function bucketBySession(logs: SpendLog[]): Map<string, SessionBucket> {
@@ -34,7 +32,6 @@ function bucketBySession(logs: SpendLog[]): Map<string, SessionBucket> {
       lastSeen: log.startTime,
       totalDurationMs: 0,
       models: new Map<string, number>(),
-      userAgents: new Set<string>(),
     };
     bucket.spend += log.spend ?? 0;
     bucket.inputTokens += log.prompt_tokens ?? 0;
@@ -47,11 +44,6 @@ function bucketBySession(logs: SpendLog[]): Map<string, SessionBucket> {
     if (log.model) {
       const cur = bucket.models.get(log.model) ?? 0;
       bucket.models.set(log.model, cur + (log.spend ?? 0));
-    }
-    for (const tag of log.request_tags ?? []) {
-      if (tag.startsWith("User-Agent: ")) {
-        bucket.userAgents.add(tag.replace("User-Agent: ", ""));
-      }
     }
     sessions.set(sid, bucket);
   }
@@ -96,22 +88,23 @@ export async function sessionsCommand(
   const sessions = bucketBySession(logs);
   const sorted = [...sessions.values()].sort((a, b) => b.spend - a.spend);
   const top = sorted.slice(0, limit);
-
   const maxSpend = Math.max(...sorted.map((s) => s.spend), 0.01);
 
-  const ui = cliui({ width: 140 });
-  ui.div(
-    col(chalk.bold("SESSION"), 10),
-    col(chalk.bold("REQS"), 6, "right"),
-    col(chalk.bold("INPUT"), 11, "right"),
-    col(chalk.bold("OUTPUT"), 10, "right"),
-    col(chalk.bold("CACHE R"), 11, "right"),
-    col(chalk.bold("DURATION"), 10, "right"),
-    col(chalk.bold("SPEND"), 10, "right"),
-    col(chalk.bold("BAR"), 20),
-    col(chalk.bold("MODELS"), 42),
-  );
-  ui.div(divider(140));
+  const widths = [10, 6, 11, 10, 11, 10, 10, 20, 38];
+  const tableRows: Column[][] = [
+    [
+      col(chalk.bold("SESSION"), 10),
+      col(chalk.bold("REQS"), 6, "right"),
+      col(chalk.bold("INPUT"), 11, "right"),
+      col(chalk.bold("OUTPUT"), 10, "right"),
+      col(chalk.bold("CACHE R"), 11, "right"),
+      col(chalk.bold("DURATION"), 10, "right"),
+      col(chalk.bold("SPEND"), 10, "right"),
+      col(chalk.bold("BAR"), 20),
+      col(chalk.bold("MODELS"), 38),
+    ],
+    [divider(widths.reduce((a, b) => a + b + 2, -2))],
+  ];
 
   for (const s of top) {
     const modelList = [...s.models.entries()]
@@ -119,8 +112,9 @@ export async function sessionsCommand(
       .sort((a, b) => b[1] - a[1])
       .map(([m]) => m.replace("vertex_ai/", ""))
       .join(", ");
-    const bar = "█".repeat(Math.max(1, Math.round((s.spend / maxSpend) * 20)));
-    ui.div(
+    const barLen = Math.max(1, Math.round((s.spend / maxSpend) * 20));
+    const bar = chalk.cyan("█".repeat(barLen)) + chalk.gray("░".repeat(20 - barLen));
+    tableRows.push([
       col(shortSessionId(s.sessionId), 10),
       col(formatNumber(s.requests), 6, "right"),
       col(formatNumber(s.inputTokens), 11, "right"),
@@ -128,17 +122,17 @@ export async function sessionsCommand(
       col(formatNumber(s.cacheReadTokens), 11, "right"),
       col(formatDuration(s.totalDurationMs), 10, "right"),
       col(formatCurrency(s.spend), 10, "right"),
-      col(chalk.cyan(bar), 20),
-      col(modelList, 42),
-    );
+      col(bar, 20),
+      col(modelList, 38),
+    ]);
   }
-  ui.div(divider(140));
+  tableRows.push([divider(widths.reduce((a, b) => a + b + 2, -2))]);
   const totalSpend = sorted.reduce((s, x) => s + x.spend, 0);
   const totalReqs = sorted.reduce((s, x) => s + x.requests, 0);
   const totalInput = sorted.reduce((s, x) => s + x.inputTokens, 0);
   const totalOutput = sorted.reduce((s, x) => s + x.outputTokens, 0);
   const totalCache = sorted.reduce((s, x) => s + x.cacheReadTokens, 0);
-  ui.div(
+  tableRows.push([
     col(chalk.bold(`TOTAL (${sorted.length})`), 10),
     col(chalk.bold(formatNumber(totalReqs)), 6, "right"),
     col(chalk.bold(formatNumber(totalInput)), 11, "right"),
@@ -147,9 +141,9 @@ export async function sessionsCommand(
     col("", 10, "right"),
     col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
     col("", 20),
-    col("", 42),
-  );
-  console.log(ui.toString());
+    col("", 38),
+  ]);
+  console.log(renderTable(tableRows, widths));
 
   if (sorted.length > limit) {
     console.log(chalk.gray(`\n  Showing top ${limit} of ${sorted.length} sessions. Use --limit to see more.`));

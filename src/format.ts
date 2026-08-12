@@ -1,10 +1,8 @@
 import chalk from "chalk";
 
-// Matches cliui's Column type (cliui 8 ships no .d.ts in the package)
 export interface Column {
   text: string;
   width: number;
-  padding: number[];
   align: "left" | "right" | "center";
 }
 
@@ -13,16 +11,42 @@ export function col(
   width: number,
   align: "left" | "right" | "center" = "left",
 ): Column {
-  return { text, width, padding: [0, 1, 0, 1], align };
+  return { text, width, align };
 }
 
 export function divider(width: number): Column {
-  return { text: "─".repeat(width), width, padding: [0, 0, 0, 0], align: "left" };
+  return { text: "─".repeat(width), width, align: "left" };
+}
+
+function pad(text: string, width: number, align: "left" | "right" | "center"): string {
+  const visible = stripAnsi(text);
+  const len = visible.length;
+  if (len >= width) return text;
+  const padCount = width - len;
+  if (align === "right") return " ".repeat(padCount) + text;
+  if (align === "center") {
+    const left = Math.floor(padCount / 2);
+    return " ".repeat(left) + text + " ".repeat(padCount - left);
+  }
+  return text + " ".repeat(padCount);
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
+export function renderTable(columns: Column[][], widths: number[]): string {
+  const lines: string[] = [];
+  for (const cols of columns) {
+    const parts = cols.map((c, i) => pad(c.text, widths[i], c.align));
+    lines.push(parts.join("  "));
+  }
+  return lines.join("\n");
 }
 
 export function formatCurrency(n: number): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
-  if (n < 0.01) return `$${n.toFixed(6)}`;
+  if (n < 0.01 && n > 0) return `$${n.toFixed(6)}`;
   if (n < 1) return `$${n.toFixed(4)}`;
   return `$${n.toFixed(2)}`;
 }
@@ -73,6 +97,12 @@ export function budgetBar(spend: number, max: number | null): string {
   const bar = "█".repeat(filled) + "░".repeat(width - filled);
   const color = pct >= 100 ? chalk.red : pct >= 80 ? chalk.yellow : chalk.green;
   return `${color(bar)} ${pct.toFixed(0)}%`;
+}
+
+export function sparkBar(value: number, max: number, width = 20): string {
+  if (max <= 0) return chalk.gray("░".repeat(width));
+  const filled = Math.max(1, Math.round((value / max) * width));
+  return chalk.cyan("█".repeat(filled)) + chalk.gray("░".repeat(width - filled));
 }
 
 export function today(): string {

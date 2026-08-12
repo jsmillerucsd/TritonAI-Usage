@@ -1,8 +1,7 @@
 import chalk from "chalk";
-import cliui from "cliui";
 import type { Config } from "../config.js";
 import { getKeyInfo } from "../api.js";
-import { budgetBar, col, divider, formatCurrency, formatRelative } from "../format.js";
+import { budgetBar, col, divider, formatCurrency, formatRelative, renderTable, type Column } from "../format.js";
 
 interface Row {
   name: string;
@@ -59,30 +58,32 @@ export async function dashboardCommand(config: Config): Promise<void> {
 
   const rows = await Promise.all(config.keys.map((k) => fetchRow(config, k)));
 
-  const ui = cliui({ width: 110 });
-  ui.div(
-    col(chalk.bold("NAME"), 16),
-    col(chalk.bold("STATUS"), 9),
-    col(chalk.bold("SPEND"), 11, "right"),
-    col(chalk.bold("BUDGET"), 11, "right"),
-    col(chalk.bold("USAGE"), 22),
-    col(chalk.bold("LAST ACTIVE"), 14),
-    col(chalk.bold("MODELS"), 8, "right"),
-  );
-  ui.div(divider(110));
+  const widths = [16, 9, 11, 11, 22, 14, 7];
+  const tableRows: Column[][] = [
+    [
+      col(chalk.bold("NAME"), 16),
+      col(chalk.bold("STATUS"), 9),
+      col(chalk.bold("SPEND"), 11, "right"),
+      col(chalk.bold("BUDGET"), 11, "right"),
+      col(chalk.bold("USAGE"), 22),
+      col(chalk.bold("LAST ACTIVE"), 14),
+      col(chalk.bold("MODELS"), 7, "right"),
+    ],
+    [divider(widths.reduce((a, b) => a + b + 2, -2))],
+  ];
 
   for (const r of rows) {
-    ui.div(
+    tableRows.push([
       col(r.name, 16),
       col(r.status, 9),
       col(r.spend, 11, "right"),
       col(r.budget, 11, "right"),
       col(r.usage, 22),
       col(r.lastActive, 14),
-      col(String(r.models), 8, "right"),
-    );
+      col(String(r.models), 7, "right"),
+    ]);
   }
-  console.log(ui.toString());
+  console.log(renderTable(tableRows, widths));
 
   const errors = rows.filter((r) => r.error);
   if (errors.length > 0) {

@@ -1,9 +1,8 @@
 import chalk from "chalk";
-import cliui from "cliui";
 import type { Config } from "../config.js";
 import { findKey } from "../config.js";
-import { getSpendLogs, type SpendLog } from "../api.js";
-import { col, daysAgo, divider, formatCurrency, formatNumber, today } from "../format.js";
+import { getSpendLogs, getKeySpendReport, type SpendLog } from "../api.js";
+import { col, daysAgo, divider, formatCurrency, formatNumber, renderTable, sparkBar, today, type Column } from "../format.js";
 
 interface DayBucket {
   date: string;
@@ -11,7 +10,6 @@ interface DayBucket {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
-  cacheWriteTokens: number;
   requests: number;
   byModel: Map<string, { spend: number; requests: number }>;
 }
@@ -26,7 +24,6 @@ function bucketByDay(logs: SpendLog[]): Map<string, DayBucket> {
       inputTokens: 0,
       outputTokens: 0,
       cacheReadTokens: 0,
-      cacheWriteTokens: 0,
       requests: 0,
       byModel: new Map(),
     };
@@ -34,7 +31,6 @@ function bucketByDay(logs: SpendLog[]): Map<string, DayBucket> {
     bucket.inputTokens += log.prompt_tokens ?? 0;
     bucket.outputTokens += log.completion_tokens ?? 0;
     bucket.cacheReadTokens += log.metadata?.usage_object?.cache_read_input_tokens ?? 0;
-    bucket.cacheWriteTokens += log.metadata?.usage_object?.cache_creation_input_tokens ?? 0;
     bucket.requests += 1;
     const model = log.model ?? "(unknown)";
     const m = bucket.byModel.get(model) ?? { spend: 0, requests: 0 };
@@ -44,12 +40,6 @@ function bucketByDay(logs: SpendLog[]): Map<string, DayBucket> {
     days.set(day, bucket);
   }
   return days;
-}
-
-function sparkBar(value: number, max: number, width = 20): string {
-  if (max <= 0) return chalk.gray("░".repeat(width));
-  const filled = Math.max(1, Math.round((value / max) * width));
-  return chalk.cyan("█".repeat(filled)) + chalk.gray("░".repeat(width - filled));
 }
 
 export async function dailyCommand(
@@ -66,27 +56,40 @@ export async function dailyCommand(
   console.log(chalk.gray(`Range: ${startDate} → ${endDate}`));
   console.log();
 
-  const logs = await getSpendLogs(config, key, startDate, endDate);
+  const [logs, report] = await Promise.all([
+    getSpendLogs(config, key, startDate, endDate),
+    getKeySpendReport(config, key, startDate, endDate).catch(() => []),
+  ]);
+
+  // The report endpoint has the authoritative total (logs may have limited retention)
+  const reportTotal = report[0]?.total_cost ?? null;
+  const reportInput = report[0]?.total_input_tokens ?? null;
+  const reportOutput = report[0]?.total_output_tokens ?? null;
+
   if (logs.length === 0) {
-    console.log(chalk.yellow(`No requests in ${startDate} → ${endDate}`));
+    if (reportTotal !== null && reportTotal > 0) {
+      console.log(chalk.yellow(`No per-request logs available (retention limit).`));
+      console.log(chalk.gray(`Aggregated spend for this range: ${formatCurrency(reportTotal)}`));
+    } else {
+      console.log(chalk.yellow(`No requests in ${startDate} → ${endDate}`));
+    }
     return;
   }
 
   const days = bucketByDay(logs);
   const sortedDays = [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
   const maxSpend = Math.max(...sortedDays.map((d) => d.spend));
+  const logTotalSpend = sortedDays.reduce((s, d) => s + d.spend, 0);
 
   const showModels = opts.models === true;
 
   if (showModels) {
-    // Day x model matrix — dedupe models that only differ by provider prefix
     const allModels = new Set<string>();
     for (const d of sortedDays) {
       for (const [m, info] of d.byModel) {
         if (info.spend > 0) allModels.add(m);
       }
     }
-    // Sort: put claude-opus first, then claude-sonnet, then alphabetical
     const models = [...allModels].sort((a, b) => {
       const ai = a.replace("vertex_ai/", "");
       const bi = b.replace("vertex_ai/", "");
@@ -96,66 +99,62 @@ export async function dailyCommand(
       return ai.localeCompare(bi);
     });
 
-    const ui = cliui({ width: 130 });
-    const modelCols = models.map((m) => ({
-      name: m.replace("vertex_ai/", ""),
-      full: m,
-    }));
-
-    ui.div(
-      col(chalk.bold("DATE"), 12),
-      col(chalk.bold("REQS"), 7, "right"),
-      col(chalk.bold("SPEND"), 10, "right"),
-      col(chalk.bold("BAR"), 22),
-      ...modelCols.map((m) => col(chalk.bold(m.name), 20, "right")),
-    );
-    ui.div(divider(130));
+    const modelColWidths = models.map(() => 18);
+    const baseWidths = [12, 7, 10, 22, ...modelColWidths];
+    const tableRows: Column[][] = [
+      [
+        col(chalk.bold("DATE"), 12),
+        col(chalk.bold("REQS"), 7, "right"),
+        col(chalk.bold("SPEND"), 10, "right"),
+        col(chalk.bold("BAR"), 22),
+        ...models.map((m) => col(chalk.bold(m.replace("vertex_ai/", "")), 18, "right")),
+      ],
+      [divider(baseWidths.reduce((a, b) => a + b + 2, -2))],
+    ];
 
     for (const d of sortedDays) {
-      ui.div(
+      tableRows.push([
         col(d.date, 12),
         col(formatNumber(d.requests), 7, "right"),
         col(formatCurrency(d.spend), 10, "right"),
         col(sparkBar(d.spend, maxSpend), 22),
-        ...modelCols.map((m) => {
-          const entry = d.byModel.get(m.full);
-          return col(entry ? formatCurrency(entry.spend) : "—", 20, "right");
+        ...models.map((m) => {
+          const entry = d.byModel.get(m);
+          return col(entry ? formatCurrency(entry.spend) : "—", 18, "right");
         }),
-      );
+      ]);
     }
-    ui.div(divider(130));
-    const totalSpend = sortedDays.reduce((s, d) => s + d.spend, 0);
+    tableRows.push([divider(baseWidths.reduce((a, b) => a + b + 2, -2))]);
+    const totalSpend = reportTotal ?? logTotalSpend;
     const totalReqs = sortedDays.reduce((s, d) => s + d.requests, 0);
-    ui.div(
+    tableRows.push([
       col(chalk.bold("TOTAL"), 12),
       col(chalk.bold(formatNumber(totalReqs)), 7, "right"),
       col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
       col("", 22),
-      ...modelCols.map((m) => {
-        const total = sortedDays.reduce(
-          (s, d) => s + (d.byModel.get(m.full)?.spend ?? 0),
-          0,
-        );
-        return col(chalk.bold(formatCurrency(total)), 20, "right");
+      ...models.map((m) => {
+        const total = sortedDays.reduce((s, d) => s + (d.byModel.get(m)?.spend ?? 0), 0);
+        return col(chalk.bold(formatCurrency(total)), 18, "right");
       }),
-    );
-    console.log(ui.toString());
+    ]);
+    console.log(renderTable(tableRows, baseWidths));
   } else {
-    // Simple daily view
-    const ui = cliui({ width: 100 });
-    ui.div(
-      col(chalk.bold("DATE"), 12),
-      col(chalk.bold("REQS"), 7, "right"),
-      col(chalk.bold("INPUT"), 12, "right"),
-      col(chalk.bold("OUTPUT"), 12, "right"),
-      col(chalk.bold("CACHE R"), 12, "right"),
-      col(chalk.bold("SPEND"), 10, "right"),
-      col(chalk.bold("BAR"), 22),
-    );
-    ui.div(divider(100));
+    const widths = [12, 7, 12, 12, 12, 10, 22];
+    const tableRows: Column[][] = [
+      [
+        col(chalk.bold("DATE"), 12),
+        col(chalk.bold("REQS"), 7, "right"),
+        col(chalk.bold("INPUT"), 12, "right"),
+        col(chalk.bold("OUTPUT"), 12, "right"),
+        col(chalk.bold("CACHE R"), 12, "right"),
+        col(chalk.bold("SPEND"), 10, "right"),
+        col(chalk.bold("BAR"), 22),
+      ],
+      [divider(widths.reduce((a, b) => a + b + 2, -2))],
+    ];
 
     for (const d of sortedDays) {
-      ui.div(
+      tableRows.push([
         col(d.date, 12),
         col(formatNumber(d.requests), 7, "right"),
         col(formatNumber(d.inputTokens), 12, "right"),
@@ -163,15 +162,15 @@ export async function dailyCommand(
         col(formatNumber(d.cacheReadTokens), 12, "right"),
         col(formatCurrency(d.spend), 10, "right"),
         col(sparkBar(d.spend, maxSpend), 22),
-      );
+      ]);
     }
-    ui.div(divider(100));
-    const totalSpend = sortedDays.reduce((s, d) => s + d.spend, 0);
+    tableRows.push([divider(widths.reduce((a, b) => a + b + 2, -2))]);
+    const totalSpend = reportTotal ?? logTotalSpend;
     const totalReqs = sortedDays.reduce((s, d) => s + d.requests, 0);
-    const totalInput = sortedDays.reduce((s, d) => s + d.inputTokens, 0);
-    const totalOutput = sortedDays.reduce((s, d) => s + d.outputTokens, 0);
+    const totalInput = reportInput ?? sortedDays.reduce((s, d) => s + d.inputTokens, 0);
+    const totalOutput = reportOutput ?? sortedDays.reduce((s, d) => s + d.outputTokens, 0);
     const totalCache = sortedDays.reduce((s, d) => s + d.cacheReadTokens, 0);
-    ui.div(
+    tableRows.push([
       col(chalk.bold("TOTAL"), 12),
       col(chalk.bold(formatNumber(totalReqs)), 7, "right"),
       col(chalk.bold(formatNumber(totalInput)), 12, "right"),
@@ -179,7 +178,15 @@ export async function dailyCommand(
       col(chalk.bold(formatNumber(totalCache)), 12, "right"),
       col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
       col("", 22),
-    );
-    console.log(ui.toString());
+    ]);
+    console.log(renderTable(tableRows, widths));
+  }
+
+  // Warn if logs don't cover the full range
+  if (reportTotal !== null && Math.abs(reportTotal - logTotalSpend) > 0.01) {
+    console.log();
+    console.log(chalk.gray(`  Note: per-request logs total ${formatCurrency(logTotalSpend)} but`));
+    console.log(chalk.gray(`  aggregated spend is ${formatCurrency(reportTotal)}.`));
+    console.log(chalk.gray(`  Older logs may have been pruned by the proxy.`));
   }
 }

@@ -152,16 +152,28 @@ export async function getSpendLogs(
   endDate: string,
   maxPages = 50,
 ): Promise<SpendLog[]> {
-  const all: SpendLog[] = [];
-  for (let page = 1; page <= maxPages; page++) {
-    const res = await request<SpendLogsResponse>(
-      config,
-      key,
-      "/spend/logs/v2",
-      { start_date: startDate, end_date: endDate, page: String(page), size: "100" },
+  // First request to get total_pages
+  const first = await request<SpendLogsResponse>(
+    config,
+    key,
+    "/spend/logs/v2",
+    { start_date: startDate, end_date: endDate, page: "1", size: "100" },
+  );
+  const totalPages = Math.min(first.total_pages ?? 1, maxPages);
+  if (totalPages <= 1) return first.data ?? [];
+
+  // Fetch remaining pages in parallel
+  const pagePromises: Promise<SpendLogsResponse>[] = [];
+  for (let page = 2; page <= totalPages; page++) {
+    pagePromises.push(
+      request<SpendLogsResponse>(config, key, "/spend/logs/v2", {
+        start_date: startDate,
+        end_date: endDate,
+        page: String(page),
+        size: "100",
+      }),
     );
-    all.push(...(res.data ?? []));
-    if (page >= (res.total_pages ?? 1)) break;
   }
-  return all;
+  const rest = await Promise.all(pagePromises);
+  return [...(first.data ?? []), ...rest.flatMap((r) => r.data ?? [])];
 }
