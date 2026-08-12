@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import type { Config } from "../config.js";
-import { getKeyInfo } from "../api.js";
-import { budgetBar, col, divider, formatCurrency, formatRelative, renderTable, type Column } from "../format.js";
+import { getKeyInfo, getKeySpendReport } from "../api.js";
+import { budgetBar, col, divider, formatCurrency, formatRelative, renderTable, today, daysAgo, type Column } from "../format.js";
 
 interface Row {
   name: string;
@@ -10,8 +10,26 @@ interface Row {
   budget: string;
   usage: string;
   lastActive: string;
-  models: number;
+  models: string;
   error?: string;
+}
+
+async function fetchModelCount(
+  config: Config,
+  key: { name: string; apiKey: string },
+): Promise<string> {
+  // Try /key/spend/report with a 30-day range (fast, gives model_details)
+  // Some keys (self-service) can't access this endpoint
+  try {
+    const report = await getKeySpendReport(config, key, daysAgo(30), today());
+    const models = (report[0]?.model_details ?? []).filter(
+      (d) => (d.total_cost ?? 0) > 0 || (d.total_input_tokens ?? 0) > 0,
+    );
+    if (models.length > 0) return String(models.length);
+  }
+  catch { /* key may not have permission */ }
+
+  return "—";
 }
 
 async function fetchRow(
@@ -27,6 +45,9 @@ async function fetchRow(
     else if (expired) status = chalk.red("expired");
     else status = chalk.green("active");
 
+    // Get actual model count in parallel with other data
+    const modelCount = await fetchModelCount(config, key);
+
     return {
       name: key.name,
       status,
@@ -34,7 +55,7 @@ async function fetchRow(
       budget: info.max_budget !== null ? formatCurrency(info.max_budget) : "—",
       usage: budgetBar(info.spend ?? 0, info.max_budget),
       lastActive: formatRelative(info.last_active),
-      models: info.models?.length ?? 0,
+      models: modelCount,
     };
   } catch (err) {
     return {
@@ -44,7 +65,7 @@ async function fetchRow(
       budget: "—",
       usage: "—",
       lastActive: "—",
-      models: 0,
+      models: "—",
       error: (err as Error).message,
     };
   }
@@ -80,7 +101,7 @@ export async function dashboardCommand(config: Config): Promise<void> {
       col(r.budget, 11, "right"),
       col(r.usage, 22),
       col(r.lastActive, 14),
-      col(String(r.models), 7, "right"),
+      col(r.models, 7, "right"),
     ]);
   }
   console.log(renderTable(tableRows, widths));

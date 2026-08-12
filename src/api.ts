@@ -38,23 +38,23 @@ export interface ModelDetail {
 export interface SpendLog {
   request_id: string;
   call_type: string;
-  api_key: string;
+  api_key?: string;
   spend: number;
   total_tokens: number;
   prompt_tokens: number;
   completion_tokens: number;
   startTime: string;
   endTime: string;
-  model: string;
-  model_group: string;
-  custom_llm_provider: string;
-  session_id: string | null;
+  model?: string;
+  model_group?: string;
+  custom_llm_provider?: string;
+  session_id?: string | null;
   status: string;
   request_duration_ms: number;
-  cache_hit: string | null;
-  request_tags: string[];
-  end_user: string | null;
-  metadata: {
+  cache_hit?: string | null;
+  request_tags?: string[];
+  end_user?: string | null;
+  metadata?: {
     usage_object?: {
       cache_read_input_tokens?: number;
       cache_creation_input_tokens?: number;
@@ -70,6 +70,10 @@ export interface SpendLog {
       cache_creation_cost?: number;
     };
   };
+}
+
+export function logModel(log: SpendLog): string {
+  return log.model ?? log.model_group ?? "(unknown)";
 }
 
 export interface SpendLogsResponse {
@@ -150,7 +154,7 @@ async function requestWithRetry<T>(
   key: KeyEntry,
   path: string,
   params: Record<string, string> = {},
-  retries = 2,
+  retries = 3,
 ): Promise<T> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -158,8 +162,10 @@ async function requestWithRetry<T>(
     } catch (err) {
       if (attempt === retries) throw err;
       const msg = (err as Error).message;
-      if (!msg.includes("API 500")) throw err;
-      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      if (!msg.includes("API 500") && !msg.includes("API 429")) throw err;
+      // 429 needs longer backoff; 500 can be quick
+      const base = msg.includes("429") ? 2000 : 500;
+      await new Promise((r) => setTimeout(r, base * (attempt + 1)));
     }
   }
   throw new Error("unreachable");
@@ -193,25 +199,49 @@ export async function getSpendLogs(
     return first.data ?? [];
   }
 
-  // Fetch remaining pages in parallel batches of 25 with retry on 500
+  // Fetch remaining pages. Probe with batch=5 to detect self-service rate limits.
+  // If 429, fall back to sequential. If success, scale up to 25.
   const all: SpendLog[] = [...(first.data ?? [])];
-  const batchSize = 25;
-  for (let batchStart = 2; batchStart <= totalPages; batchStart += batchSize) {
-    const batchEnd = Math.min(batchStart + batchSize - 1, totalPages);
+  let batchSize = 5;
+  let page = 2;
+  let probed = false;
+  while (page <= totalPages) {
+    const batchEnd = Math.min(page + batchSize - 1, totalPages);
     const pagePromises: Promise<SpendLogsResponse>[] = [];
-    for (let page = batchStart; page <= batchEnd; page++) {
+    for (let p = page; p <= batchEnd; p++) {
       pagePromises.push(
         requestWithRetry<SpendLogsResponse>(config, key, "/spend/logs/v2", {
-          start_date: startDate,
-          end_date: endNext,
-          page: String(page),
-          size: "100",
+          start_date: startDate, end_date: endNext, page: String(p), size: "100",
         }),
       );
     }
-    const batch = await Promise.all(pagePromises);
-    all.push(...batch.flatMap((r) => r.data ?? []));
-    onProgress?.(all.length, totalCount);
+    try {
+      const batch = await Promise.all(pagePromises);
+      all.push(...batch.flatMap((r) => r.data ?? []));
+      onProgress?.(all.length, totalCount);
+      page = batchEnd + 1;
+      if (!probed) {
+        probed = true;
+        batchSize = 25; // parallel works, scale up
+      }
+    } catch (err) {
+      if ((err as Error).message.includes("429")) {
+        if (!probed) {
+          // First batch failed: self-service key, go sequential
+          probed = true;
+          batchSize = 1;
+          // Don't advance page; retry same pages one at a time
+          // But first wait for rate limit to cool down
+          await new Promise((r) => setTimeout(r, 5000));
+          continue;
+        }
+        // Already probed but still hit 429 (shouldn't happen with batch=1)
+        // Wait and retry
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      throw err;
+    }
   }
   return all;
 }

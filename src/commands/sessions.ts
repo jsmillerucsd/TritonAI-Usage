@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import type { Config } from "../config.js";
 import { findKey } from "../config.js";
-import { getSpendLogs, type SpendLog } from "../api.js";
+import { getSpendLogs, logModel, type SpendLog } from "../api.js";
 import { col, daysAgo, divider, formatCurrency, formatNumber, renderTable, today, type Column } from "../format.js";
 
 interface SessionBucket {
@@ -24,6 +24,7 @@ function bucketBySession(logs: SpendLog[]): Map<string, SessionBucket> {
   const sessions = new Map<string, SessionBucket>();
   for (const log of logs) {
     const sid = log.session_id ?? "(no-session)";
+    const model = logModel(log);
     const bucket = sessions.get(sid) ?? {
       sessionId: sid,
       spend: 0,
@@ -50,9 +51,9 @@ function bucketBySession(logs: SpendLog[]): Map<string, SessionBucket> {
     bucket.totalDurationMs += log.request_duration_ms ?? 0;
     if (log.startTime < bucket.firstSeen) bucket.firstSeen = log.startTime;
     if (log.startTime > bucket.lastSeen) bucket.lastSeen = log.startTime;
-    if (log.model) {
-      const cur = bucket.models.get(log.model) ?? 0;
-      bucket.models.set(log.model, cur + (log.spend ?? 0));
+    if (model) {
+      const cur = bucket.models.get(model) ?? 0;
+      bucket.models.set(model, cur + (log.spend ?? 0));
     }
     sessions.set(sid, bucket);
   }

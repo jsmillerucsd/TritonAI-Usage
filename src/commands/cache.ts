@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import type { Config } from "../config.js";
 import { findKey } from "../config.js";
-import { getSpendLogs, type SpendLog } from "../api.js";
+import { getSpendLogs, logModel, type SpendLog } from "../api.js";
 import { col, daysAgo, divider, formatCurrency, formatNumber, renderTable, today, type Column } from "../format.js";
 
 interface CacheStats {
@@ -54,7 +54,7 @@ function computeStats(logs: SpendLog[]): CacheStats {
 function computeByModel(logs: SpendLog[]): ModelCacheStats[] {
   const byModel = new Map<string, CacheStats>();
   for (const log of logs) {
-    const model = log.model ?? "(unknown)";
+    const model = logModel(log);
     const s = byModel.get(model) ?? {
       totalInput: 0, cacheRead: 0, cacheWrite: 0, cacheReadCost: 0,
       cacheWriteCost: 0, inputCost: 0, outputCost: 0, totalSpend: 0,
