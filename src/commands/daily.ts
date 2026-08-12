@@ -65,6 +65,11 @@ export async function dailyCommand(
   const reportTotal = report[0]?.total_cost ?? null;
   const reportInput = report[0]?.total_input_tokens ?? null;
   const reportOutput = report[0]?.total_output_tokens ?? null;
+  // Per-model totals from the report (authoritative, covers full date range)
+  const reportByModel = new Map<string, number>();
+  for (const d of report[0]?.model_details ?? []) {
+    reportByModel.set(d.model, d.total_cost ?? 0);
+  }
 
   if (logs.length === 0) {
     if (reportTotal !== null && reportTotal > 0) {
@@ -85,10 +90,15 @@ export async function dailyCommand(
 
   if (showModels) {
     const allModels = new Set<string>();
+    // Models from logs (per-day breakdown)
     for (const d of sortedDays) {
       for (const [m, info] of d.byModel) {
         if (info.spend > 0) allModels.add(m);
       }
+    }
+    // Models from report (may include models only used outside the log retention window)
+    for (const m of reportByModel.keys()) {
+      if ((reportByModel.get(m) ?? 0) > 0) allModels.add(m);
     }
     const models = [...allModels].sort((a, b) => {
       const ai = a.replace("vertex_ai/", "");
@@ -133,7 +143,7 @@ export async function dailyCommand(
       col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
       col("", 22),
       ...models.map((m) => {
-        const total = sortedDays.reduce((s, d) => s + (d.byModel.get(m)?.spend ?? 0), 0);
+        const total = reportByModel.get(m) ?? sortedDays.reduce((s, d) => s + (d.byModel.get(m)?.spend ?? 0), 0);
         return col(chalk.bold(formatCurrency(total)), 18, "right");
       }),
     ]);
