@@ -28,7 +28,6 @@
   "bugs": {
     "url": "https://github.com/jsmillerucsd/triton-usage/issues"
   },
-  "license": "MIT",
   "author": "jsmillerucsd",
   "engines": {
     "node": ">=18"

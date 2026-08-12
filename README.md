@@ -1,30 +1,25 @@
 # triton-usage
 
-A CLI tool for monitoring API key spend and usage on [TritonAI](https://tritonai-api.ucsd.edu/) or any [LiteLLM](https://docs.litellm.ai/docs/proxy/get_started) proxy. Track spend across multiple keys, break down usage by day, model, and session — all from your terminal.
+A CLI tool for monitoring API key spend and usage on [TritonAI](https://tritonai-api.ucsd.edu/) or any [LiteLLM](https://docs.litellm.ai/docs/proxy/get_started) proxy. Track spend across multiple keys, break down usage by day, model, and session, all from your terminal.
 
 Inspired by [`ccusage`](https://github.com/ryoppippi/ccusage), built for LiteLLM proxies.
 
 ## Install
 
-### Prerequisites
+Requires Node.js 18 or higher.
 
-- Node.js 18+
-
-### Option 1: npx (no install)
-
+**npx (no install):**
 ```bash
 npx triton-usage dashboard
 ```
 
-### Option 2: npm install (global)
-
+**npm install (global):**
 ```bash
 npm install -g triton-usage
 triton-usage dashboard
 ```
 
-### Option 3: Build from source
-
+**Build from source:**
 ```bash
 git clone https://github.com/jsmillerucsd/triton-usage.git
 cd triton-usage
@@ -35,24 +30,19 @@ npm link
 
 After `npm link`, `triton-usage` is available globally.
 
-### Using with Claude Code, Codex, or any AI harness
+## Using with Claude Code, Codex, or any AI harness
 
-If you're using an AI coding tool (Claude Code, Codex, Cursor, etc.) that routes requests through a LiteLLM proxy, `triton-usage` lets you monitor exactly how much each session costs. Simply configure your proxy keys (see below) and run any command. The tool works with any LiteLLM-compatible endpoint — just set the base URL.
+If you use an AI coding tool (Claude Code, Codex, Cursor, etc.) that routes requests through a LiteLLM proxy, `triton-usage` shows you exactly how much each session costs. Configure your proxy keys (see below) and run any command. The tool works with any LiteLLM-compatible endpoint by setting the base URL.
 
 ## Configuration
 
-Keys can be provided via environment variables, a config file, or both (environment variables take precedence on name collisions).
+Keys can be provided via environment variables, a config file, or both. Environment variables take precedence on name collisions.
 
 ### Environment variables
 
 ```bash
-# Base URL (optional; defaults to https://tritonai-api.ucsd.edu)
 export TRITONAI_BASE_URL=https://tritonai-api.ucsd.edu
-
-# Single key (appears as "default" in the dashboard)
 export TRITONAI_KEY=sk-...
-
-# Named keys (suffix becomes the key name, lowercased)
 export TRITONAI_KEY_WORKSPACE=sk-...
 export TRITONAI_KEY_CI_BOT=sk-...
 ```
@@ -61,9 +51,9 @@ export TRITONAI_KEY_CI_BOT=sk-...
 
 `triton-usage` searches for `.triton-usage.json` (or `.jsonc`) in this order:
 
-1. **Current working directory** — project-local config
-2. **Repo root** — alongside `package.json`
-3. **Home directory** — user-global fallback
+1. Current working directory
+2. Repo root (next to `package.json`)
+3. Home directory
 
 The first file found is used. Copy the example to get started:
 
@@ -82,7 +72,7 @@ cp .triton-usage.example.jsonc .triton-usage.jsonc
 }
 ```
 
-> **Security:** `.triton-usage.json` and `.triton-usage.jsonc` are gitignored by default — secrets are never committed. Only `.triton-usage.example.jsonc` (with placeholder values) is tracked.
+> **Security:** `.triton-usage.json` and `.triton-usage.jsonc` are gitignored by default so secrets are never committed. Only `.triton-usage.example.jsonc` (with placeholder values) is tracked.
 
 ## Commands
 
@@ -133,7 +123,7 @@ TOTAL             129      $28.49                                $24.68         
 
 ### `triton-usage sessions`
 
-Per-session breakdown — groups requests by `session_id` so you can see how much each coding session cost. Sorted by spend (highest first).
+Per-session breakdown. Groups requests by `session_id` so you can see how much each coding session cost. Sorted by spend (highest first).
 
 ```
 SESSION       REQS        INPUT      OUTPUT      CACHE R    DURATION       SPEND  BAR                   MODELS
@@ -180,7 +170,7 @@ TOTAL                                    274.23M         1.28M    $252.85
 | `GET /key/spend/report` | `report`, `daily` | Aggregated per-model spend over a date range |
 | `GET /spend/logs/v2` | `daily`, `sessions` | Per-request logs (paginated) for day/session breakdowns |
 
-All endpoints are callable by the key itself — no proxy admin key required. Each key only needs permission to view its own usage.
+All endpoints are callable by the key itself. No proxy admin key required. Each key only needs permission to view its own usage.
 
 > **Note on log retention:** LiteLLM proxies may prune per-request logs after a retention period. When this happens, `daily` and `sessions` will show data only for days where logs still exist, with a note indicating the gap. The `report` and `dashboard` commands use aggregated spend tables and are not affected by log retention.
 
@@ -189,10 +179,6 @@ All endpoints are callable by the key itself — no proxy admin key required. Ea
 ```bash
 npm install
 npm run typecheck   # tsc --noEmit
-npm run build       # tsup → dist/
+npm run build       # tsup -> dist/
 npm run dev         # tsx src/index.ts (no build step)
 ```
-
-## License
-
-MIT
