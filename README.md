@@ -83,33 +83,45 @@ Show help with a list of all commands.
 Snapshot of all configured keys: spend, budget, usage bar, last active time, and model count.
 
 ```
+TritonAI Key Dashboard
+Endpoint: https://tritonai-api.ucsd.edu
+Keys:     3
+
 NAME              STATUS           SPEND       BUDGET  USAGE                   LAST ACTIVE      MODELS
 ──────────────────────────────────────────────────────────────────────────────────────────────────────
-workspace         active         $252.85     $2000.00  ██░░░░░░░░░░░░░░ 13%    2m ago                1
-ci-bot            active          $12.40      $500.00  █░░░░░░░░░░░░░░░ 2%     1h ago                3
-team-alice        active         $187.22            —  no budget               5s ago                1
+spa-default       active         $382.03     $2000.00  ███░░░░░░░░░░░░░ 19%    18s ago               1
+spa-on-prem       active         $0.0000     $2000.00  ░░░░░░░░░░░░░░░░ 0%     —                     1
+continue.dev      active         $236.45            —  no budget               40s ago               1
 ```
 
 ### `triton-usage daily`
 
-Day-by-day usage with spend bars and token counts (input, output, cache reads). Defaults to last 14 days.
+Day-by-day usage with spend bars and token counts. Defaults to last 14 days. Uses the aggregated spend report API for fast results (~3 seconds for 14 days).
 
 ```
-DATE             REQS         INPUT        OUTPUT       CACHE R       SPEND  BAR
-───────────────────────────────────────────────────────────────────────────────
-2026-08-11        129        27.90M        314.0k        26.29M      $28.49  ████████████████████
-───────────────────────────────────────────────────────────────────────────────
-TOTAL             129        27.90M        314.0k        26.29M      $28.49
+Daily Usage: spa-default
+Range: 2026-07-29 -> 2026-08-12
+
+DATE                   INPUT          OUTPUT          TOKENS       SPEND  BAR
+──────────────────────────────────────────────────────────────────────────────
+2026-08-11            27.90M          314.0k          28.22M      $28.49  ██░░░░░░░░░░░░░░░░░░
+2026-08-12           455.15M           2.13M         457.28M     $354.03  ████████████████████
+──────────────────────────────────────────────────────────────────────────────
+TOTAL                483.06M           2.44M         485.50M     $382.52
 ```
 
 With `--models` for a per-model breakdown per day:
 
 ```
-DATE             REQS       SPEND  BAR                    claude-opus-5     claude-sonnet-5
-──────────────────────────────────────────────────────────────────────────────────────────
-2026-08-11        129      $28.49  ████████████████████          $24.68               $3.80
-──────────────────────────────────────────────────────────────────────────────────────────
-TOTAL             129      $28.49                                $24.68               $3.80
+Daily Usage: spa-default
+Range: 2026-07-29 -> 2026-08-12
+
+DATE               SPEND  BAR                          claude-opus-5     claude-sonnet-5
+────────────────────────────────────────────────────────────────────────────────────────
+2026-08-11        $28.49  ██░░░░░░░░░░░░░░░░░░                $24.68               $3.80
+2026-08-12       $354.03  ████████████████████               $256.78              $97.26
+────────────────────────────────────────────────────────────────────────────────────────
+TOTAL            $382.52                                     $281.46             $101.06
 ```
 
 | Flag | Default | Description |
@@ -121,35 +133,82 @@ TOTAL             129      $28.49                                $24.68         
 
 ### `triton-usage sessions`
 
-Per-session breakdown. Groups requests by `session_id` so you can see how much each coding session cost. Sorted by spend (highest first).
+Per-session breakdown. Groups requests by `session_id` so you can see how much each coding session cost. Sorted by spend (highest first). Defaults to last 7 days.
+
+A progress indicator is shown while fetching logs, since high-volume keys can have thousands of requests.
 
 ```
-SESSION       REQS        INPUT      OUTPUT      CACHE R    DURATION       SPEND  BAR                   MODELS
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-cc27a8e1       128       27.90M      314.0k       26.29M      59m26s      $28.49  ████████████████████  claude-opus-5, claude-sonnet-5
-9d81b44d         1            0           0            0         0ms     $0.0000  ░
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-TOTAL (2)      129       27.90M      314.0k       26.29M                  $28.49
+Sessions: spa-default
+Range: 2026-08-12 → 2026-08-12
+
+SESSION       REQS        INPUT      OUTPUT      CACHE R      HIT %     CACHE $       SPEND  BAR                   MODELS
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+666dccca       877      179.39M      549.6k      174.12M        49%     $102.49     $117.14  ████████████████████  claude-opus-5, claude-sonnet-5
+433e000d       738       57.00M      756.9k       49.97M        47%      $57.31      $77.99  █████████████░░░░░░░  claude-opus-5, claude-sonnet-5
+cc27a8e1       162       80.60M      163.1k       75.53M        48%      $62.27      $66.68  ███████████░░░░░░░░░  claude-opus-5, claude-sonnet-5
+a69945a4       339       87.68M      309.6k       84.58M        49%      $37.41      $42.23  ███████░░░░░░░░░░░░░  claude-sonnet-5, claude-opus-5
+2b774c17       217       22.39M      217.8k       20.33M        48%      $19.24      $25.10  ████░░░░░░░░░░░░░░░░  claude-opus-5, claude-sonnet-5
+d478d051       186       28.09M      129.5k       26.40M        48%      $21.54      $24.88  ████░░░░░░░░░░░░░░░░  claude-opus-5, claude-sonnet-5
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL (6)     2.5k      455.15M       2.13M      430.94M        49%     $300.25     $354.03
 ```
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-k, --key <name>` | first configured key | Which key to report on |
-| `-s, --start <date>` | 14 days ago | Start date (`YYYY-MM-DD`) |
+| `-s, --start <date>` | 7 days ago | Start date (`YYYY-MM-DD`) |
 | `-e, --end <date>` | today | End date (`YYYY-MM-DD`) |
 | `-n, --limit <n>` | 20 | Max sessions to show |
 
-### `triton-usage report`
+### `triton-usage cache`
 
-Per-model spend breakdown for a single key over a date range. Defaults to last 30 days.
+Cache analytics for prompt caching. Shows hit rate, cache read/write tokens, cache cost, estimated savings, and a per-model breakdown. Defaults to last 7 days.
 
 ```
-MODEL                                  INPUT TOK    OUTPUT TOK       SPEND     SHARE
-──────────────────────────────────────────────────────────────────────────────────
-vertex_ai/claude-opus-5                  216.88M         1.25M    $209.18     83.9%
-vertex_ai/claude-sonnet-5                 57.35M         30.1k     $43.66     16.1%
-──────────────────────────────────────────────────────────────────────────────────
-TOTAL                                    274.23M         1.28M    $252.85
+Cache Analysis: spa-default
+Range: 2026-08-12 -> 2026-08-12
+
+Summary
+  Requests:          2.5k (2299 with cache hits)
+  Cache hit rate:    48.6% of input tokens served from cache
+  Cache reads:       431.66M tokens
+  Cache writes:      23.34M tokens
+  Cache cost:        $300.72 (84.8% of total spend)
+  Total spend:       $354.54
+  Est. savings:      $1647.65 (approximate cost avoided by caching)
+
+MODEL                                 REQS      CACHE READ     CACHE WRITE         HIT %     CACHE $       SPEND
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+claude-opus-5                         1.3k         267.88M          12.05M           49%     $209.26     $257.29
+claude-sonnet-5                       1.2k         163.78M          11.29M           48%      $91.46      $97.25
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL                                 2.5k         431.66M          23.34M           49%     $300.72     $354.54
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-k, --key <name>` | first configured key | Which key to report on |
+| `-s, --start <date>` | 7 days ago | Start date (`YYYY-MM-DD`) |
+| `-e, --end <date>` | today | End date (`YYYY-MM-DD`) |
+
+### `triton-usage report`
+
+Per-model spend breakdown for a single key over a date range. Defaults to last 30 days. Shows budget usage and each model's share of total spend.
+
+```
+Spend Report: spa-default
+Range: 2026-07-13 → 2026-08-12
+
+Current spend: $381.97 / $2000.00
+  ███░░░░░░░░░░░░░ 19%
+Last active:  2026-08-12T20:54:23.479000+00:00
+
+MODEL                                      INPUT TOK      OUTPUT TOK         SPEND       SHARE
+──────────────────────────────────────────────────────────────────────────────────────────────
+vertex_ai/claude-opus-5                      304.48M           2.09M       $281.46       73.5%
+vertex_ai/claude-sonnet-5                    179.22M          351.0k       $101.30       26.5%
+──────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL                                        483.70M           2.44M       $382.76
 ```
 
 | Flag | Default | Description |
@@ -166,11 +225,13 @@ TritonAI-Usage queries three LiteLLM proxy endpoints:
 | --- | --- | --- |
 | `GET /key/info` | `dashboard`, `report` | Current spend, budget, models, last active |
 | `GET /key/spend/report` | `report`, `daily` | Aggregated per-model spend over a date range |
-| `GET /spend/logs/v2` | `daily`, `sessions` | Per-request logs (paginated) for day/session breakdowns |
+| `GET /spend/logs/v2` | `sessions`, `cache` | Per-request logs (paginated) for session and cache breakdowns |
 
 All endpoints are callable by the key itself. No proxy admin key required. Each key only needs permission to view its own usage.
 
-> **Note on log retention:** LiteLLM proxies may prune per-request logs after a retention period. When this happens, `daily` and `sessions` will show data only for days where logs still exist, with a note indicating the gap. The `report` and `dashboard` commands use aggregated spend tables and are not affected by log retention.
+> **Note on log retention:** LiteLLM proxies may prune per-request logs after a retention period. When this happens, `sessions` and `cache` will show data only for days where logs still exist. The `report`, `daily`, and `dashboard` commands use aggregated spend tables and are not affected by log retention.
+
+> **Performance:** `daily` and `report` use the aggregated spend API and complete in seconds. `sessions` and `cache` fetch per-request logs, which can be slow for high-volume keys (thousands of requests per day). A progress indicator is shown during fetch. Narrow the date range with `-s` and `-e` for faster results.
 
 ## Development
 
