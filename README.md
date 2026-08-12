@@ -1,38 +1,36 @@
-# triton-usage
+# TritonAI-Usage
 
-A CLI tool for monitoring API key spend and usage on [TritonAI](https://tritonai-api.ucsd.edu/) or any [LiteLLM](https://docs.litellm.ai/docs/proxy/get_started) proxy. Track spend across multiple keys, break down usage by day, model, and session, all from your terminal.
+A CLI for monitoring API key spend and usage on [TritonAI](https://tritonai-api.ucsd.edu/) or any [LiteLLM](https://docs.litellm.ai/docs/proxy/get_started) proxy. Track spend across multiple keys. Break down usage by day, model, and session. All from your terminal.
 
-Inspired by [`ccusage`](https://github.com/ryoppippi/ccusage), built for LiteLLM proxies.
+Inspired by [`ccusage`](https://github.com/ryoppippi/ccusage). Built for LiteLLM proxies.
 
 ## Install
 
-Requires Node.js 18 or higher.
+Requires Node.js 18+.
 
 **npx (no install):**
 ```bash
 npx triton-usage dashboard
 ```
 
-**npm install (global):**
+**npm (global):**
 ```bash
 npm install -g triton-usage
 triton-usage dashboard
 ```
 
-**Build from source:**
+**From source:**
 ```bash
 git clone https://github.com/jsmillerucsd/TritonAI-Usage.git
-cd triton-usage
+cd TritonAI-Usage
 npm install
 npm run build
 npm link
 ```
 
-After `npm link`, `triton-usage` is available globally.
-
 ## Using with Claude Code, Codex, or any AI harness
 
-If you use an AI coding tool (Claude Code, Codex, Cursor, etc.) that routes requests through a LiteLLM proxy, `triton-usage` shows you exactly how much each session costs. Configure your proxy keys (see below) and run any command. The tool works with any LiteLLM-compatible endpoint by setting the base URL.
+If your AI coding tool routes requests through a LiteLLM proxy, TritonAI-Usage shows you exactly how much each session costs. Configure your proxy keys (see below) and run any command. Works with any LiteLLM-compatible endpoint by setting the base URL.
 
 ## Configuration
 
@@ -49,7 +47,7 @@ export TRITONAI_KEY_CI_BOT=sk-...
 
 ### Config file
 
-`triton-usage` searches for `.triton-usage.json` (or `.jsonc`) in this order:
+TritonAI-Usage searches for `.triton-usage.json` (or `.jsonc`) in this order:
 
 1. Current working directory
 2. Repo root (next to `package.json`)
@@ -82,7 +80,7 @@ Show help with a list of all commands.
 
 ### `triton-usage dashboard`
 
-Snapshot of all configured keys: current spend, budget, usage bar, last active time, and allowed model count.
+Snapshot of all configured keys: spend, budget, usage bar, last active time, and model count.
 
 ```
 NAME              STATUS           SPEND       BUDGET  USAGE                   LAST ACTIVE      MODELS
@@ -94,7 +92,7 @@ team-alice        active         $187.22            —  no budget              
 
 ### `triton-usage daily`
 
-Day-by-day usage with spend bars and token counts (input, output, cache reads). Defaults to the last 14 days.
+Day-by-day usage with spend bars and token counts (input, output, cache reads). Defaults to last 14 days.
 
 ```
 DATE             REQS         INPUT        OUTPUT       CACHE R       SPEND  BAR
@@ -143,7 +141,7 @@ TOTAL (2)      129       27.90M      314.0k       26.29M                  $28.49
 
 ### `triton-usage report`
 
-Per-model spend breakdown for a single key over a date range. Defaults to the last 30 days.
+Per-model spend breakdown for a single key over a date range. Defaults to last 30 days.
 
 ```
 MODEL                                  INPUT TOK    OUTPUT TOK       SPEND     SHARE
@@ -162,7 +160,7 @@ TOTAL                                    274.23M         1.28M    $252.85
 
 ## How it works
 
-`triton-usage` queries three LiteLLM proxy endpoints:
+TritonAI-Usage queries three LiteLLM proxy endpoints:
 
 | Endpoint | Used by | Purpose |
 | --- | --- | --- |
