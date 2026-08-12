@@ -6,6 +6,7 @@ import { dashboardCommand } from "./commands/dashboard.js";
 import { reportCommand } from "./commands/report.js";
 import { dailyCommand } from "./commands/daily.js";
 import { sessionsCommand } from "./commands/sessions.js";
+import { cacheCommand } from "./commands/cache.js";
 
 const program = new Command();
 
@@ -71,6 +72,22 @@ program
     try {
       const config = loadConfig();
       await sessionsCommand(config, opts);
+    } catch (err) {
+      console.error(chalk.red(`Error: ${(err as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+program
+  .command("cache")
+  .description("Cache hit rate, savings, and per-model cache breakdown")
+  .option("-k, --key <name>", "Which configured key to use (defaults to first)")
+  .option("-s, --start <date>", "Start date YYYY-MM-DD (default: 14 days ago)")
+  .option("-e, --end <date>", "End date YYYY-MM-DD (default: today)")
+  .action(async (opts: { key?: string; start?: string; end?: string }) => {
+    try {
+      const config = loadConfig();
+      await cacheCommand(config, opts);
     } catch (err) {
       console.error(chalk.red(`Error: ${(err as Error).message}`));
       process.exit(1);

@@ -10,6 +10,9 @@ interface DayBucket {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  cacheWriteTokens: number;
+  cacheReadCost: number;
+  cacheWriteCost: number;
   requests: number;
   byModel: Map<string, { spend: number; requests: number }>;
 }
@@ -24,6 +27,9 @@ function bucketByDay(logs: SpendLog[]): Map<string, DayBucket> {
       inputTokens: 0,
       outputTokens: 0,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      cacheReadCost: 0,
+      cacheWriteCost: 0,
       requests: 0,
       byModel: new Map(),
     };
@@ -31,6 +37,9 @@ function bucketByDay(logs: SpendLog[]): Map<string, DayBucket> {
     bucket.inputTokens += log.prompt_tokens ?? 0;
     bucket.outputTokens += log.completion_tokens ?? 0;
     bucket.cacheReadTokens += log.metadata?.usage_object?.cache_read_input_tokens ?? 0;
+    bucket.cacheWriteTokens += log.metadata?.usage_object?.cache_creation_input_tokens ?? 0;
+    bucket.cacheReadCost += log.metadata?.cost_breakdown?.cache_read_cost ?? 0;
+    bucket.cacheWriteCost += log.metadata?.cost_breakdown?.cache_creation_cost ?? 0;
     bucket.requests += 1;
     const model = log.model ?? "(unknown)";
     const m = bucket.byModel.get(model) ?? { spend: 0, requests: 0 };
@@ -147,7 +156,7 @@ export async function dailyCommand(
     ]);
     console.log(renderTable(tableRows, baseWidths));
   } else {
-    const widths = [12, 7, 12, 12, 12, 10, 22];
+    const widths = [12, 7, 12, 12, 12, 12, 10, 10, 22];
     const tableRows: Column[][] = [
       [
         col(chalk.bold("DATE"), 12),
@@ -155,6 +164,8 @@ export async function dailyCommand(
         col(chalk.bold("INPUT"), 12, "right"),
         col(chalk.bold("OUTPUT"), 12, "right"),
         col(chalk.bold("CACHE R"), 12, "right"),
+        col(chalk.bold("CACHE W"), 12, "right"),
+        col(chalk.bold("CACHE $"), 10, "right"),
         col(chalk.bold("SPEND"), 10, "right"),
         col(chalk.bold("BAR"), 22),
       ],
@@ -168,6 +179,8 @@ export async function dailyCommand(
         col(formatNumber(d.inputTokens), 12, "right"),
         col(formatNumber(d.outputTokens), 12, "right"),
         col(formatNumber(d.cacheReadTokens), 12, "right"),
+        col(formatNumber(d.cacheWriteTokens), 12, "right"),
+        col(formatCurrency(d.cacheReadCost + d.cacheWriteCost), 10, "right"),
         col(formatCurrency(d.spend), 10, "right"),
         col(sparkBar(d.spend, maxSpend), 22),
       ]);
@@ -177,13 +190,17 @@ export async function dailyCommand(
     const totalReqs = sortedDays.reduce((s, d) => s + d.requests, 0);
     const totalInput = sortedDays.reduce((s, d) => s + d.inputTokens, 0);
     const totalOutput = sortedDays.reduce((s, d) => s + d.outputTokens, 0);
-    const totalCache = sortedDays.reduce((s, d) => s + d.cacheReadTokens, 0);
+    const totalCacheR = sortedDays.reduce((s, d) => s + d.cacheReadTokens, 0);
+    const totalCacheW = sortedDays.reduce((s, d) => s + d.cacheWriteTokens, 0);
+    const totalCacheCost = sortedDays.reduce((s, d) => s + d.cacheReadCost + d.cacheWriteCost, 0);
     tableRows.push([
       col(chalk.bold("TOTAL"), 12),
       col(chalk.bold(formatNumber(totalReqs)), 7, "right"),
       col(chalk.bold(formatNumber(totalInput)), 12, "right"),
       col(chalk.bold(formatNumber(totalOutput)), 12, "right"),
-      col(chalk.bold(formatNumber(totalCache)), 12, "right"),
+      col(chalk.bold(formatNumber(totalCacheR)), 12, "right"),
+      col(chalk.bold(formatNumber(totalCacheW)), 12, "right"),
+      col(chalk.bold(formatCurrency(totalCacheCost)), 10, "right"),
       col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
       col("", 22),
     ]);

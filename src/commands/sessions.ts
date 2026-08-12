@@ -10,6 +10,9 @@ interface SessionBucket {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  cacheWriteTokens: number;
+  cacheReadCost: number;
+  cacheWriteCost: number;
   requests: number;
   firstSeen: string;
   lastSeen: string;
@@ -27,6 +30,9 @@ function bucketBySession(logs: SpendLog[]): Map<string, SessionBucket> {
       inputTokens: 0,
       outputTokens: 0,
       cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      cacheReadCost: 0,
+      cacheWriteCost: 0,
       requests: 0,
       firstSeen: log.startTime,
       lastSeen: log.startTime,
@@ -37,6 +43,9 @@ function bucketBySession(logs: SpendLog[]): Map<string, SessionBucket> {
     bucket.inputTokens += log.prompt_tokens ?? 0;
     bucket.outputTokens += log.completion_tokens ?? 0;
     bucket.cacheReadTokens += log.metadata?.usage_object?.cache_read_input_tokens ?? 0;
+    bucket.cacheWriteTokens += log.metadata?.usage_object?.cache_creation_input_tokens ?? 0;
+    bucket.cacheReadCost += log.metadata?.cost_breakdown?.cache_read_cost ?? 0;
+    bucket.cacheWriteCost += log.metadata?.cost_breakdown?.cache_creation_cost ?? 0;
     bucket.requests += 1;
     bucket.totalDurationMs += log.request_duration_ms ?? 0;
     if (log.startTime < bucket.firstSeen) bucket.firstSeen = log.startTime;
@@ -48,15 +57,6 @@ function bucketBySession(logs: SpendLog[]): Map<string, SessionBucket> {
     sessions.set(sid, bucket);
   }
   return sessions;
-}
-
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(1)}s`;
-  const m = Math.floor(s / 60);
-  const rem = Math.round(s % 60);
-  return `${m}m${rem}s`;
 }
 
 function shortSessionId(id: string): string {
@@ -90,7 +90,7 @@ export async function sessionsCommand(
   const top = sorted.slice(0, limit);
   const maxSpend = Math.max(...sorted.map((s) => s.spend), 0.01);
 
-  const widths = [10, 6, 11, 10, 11, 10, 10, 20, 38];
+  const widths = [10, 6, 11, 10, 11, 9, 10, 10, 20, 30];
   const tableRows: Column[][] = [
     [
       col(chalk.bold("SESSION"), 10),
@@ -98,10 +98,11 @@ export async function sessionsCommand(
       col(chalk.bold("INPUT"), 11, "right"),
       col(chalk.bold("OUTPUT"), 10, "right"),
       col(chalk.bold("CACHE R"), 11, "right"),
-      col(chalk.bold("DURATION"), 10, "right"),
+      col(chalk.bold("HIT %"), 9, "right"),
+      col(chalk.bold("CACHE $"), 10, "right"),
       col(chalk.bold("SPEND"), 10, "right"),
       col(chalk.bold("BAR"), 20),
-      col(chalk.bold("MODELS"), 38),
+      col(chalk.bold("MODELS"), 30),
     ],
     [divider(widths.reduce((a, b) => a + b + 2, -2))],
   ];
@@ -114,16 +115,20 @@ export async function sessionsCommand(
       .join(", ");
     const barLen = Math.max(1, Math.round((s.spend / maxSpend) * 20));
     const bar = chalk.cyan("█".repeat(barLen)) + chalk.gray("░".repeat(20 - barLen));
+    const totalInputTokens = s.inputTokens + s.cacheReadTokens;
+    const hitRate = totalInputTokens > 0 ? (s.cacheReadTokens / totalInputTokens) * 100 : 0;
+    const cacheCost = s.cacheReadCost + s.cacheWriteCost;
     tableRows.push([
       col(shortSessionId(s.sessionId), 10),
       col(formatNumber(s.requests), 6, "right"),
       col(formatNumber(s.inputTokens), 11, "right"),
       col(formatNumber(s.outputTokens), 10, "right"),
       col(formatNumber(s.cacheReadTokens), 11, "right"),
-      col(formatDuration(s.totalDurationMs), 10, "right"),
+      col(hitRate > 0 ? `${hitRate.toFixed(0)}%` : "—", 9, "right"),
+      col(cacheCost > 0 ? formatCurrency(cacheCost) : "—", 10, "right"),
       col(formatCurrency(s.spend), 10, "right"),
       col(bar, 20),
-      col(modelList, 38),
+      col(modelList, 30),
     ]);
   }
   tableRows.push([divider(widths.reduce((a, b) => a + b + 2, -2))]);
@@ -131,17 +136,21 @@ export async function sessionsCommand(
   const totalReqs = sorted.reduce((s, x) => s + x.requests, 0);
   const totalInput = sorted.reduce((s, x) => s + x.inputTokens, 0);
   const totalOutput = sorted.reduce((s, x) => s + x.outputTokens, 0);
-  const totalCache = sorted.reduce((s, x) => s + x.cacheReadTokens, 0);
+  const totalCacheR = sorted.reduce((s, x) => s + x.cacheReadTokens, 0);
+  const totalCacheCost = sorted.reduce((s, x) => s + x.cacheReadCost + x.cacheWriteCost, 0);
+  const totalAllInput = totalInput + totalCacheR;
+  const overallHitRate = totalAllInput > 0 ? (totalCacheR / totalAllInput) * 100 : 0;
   tableRows.push([
     col(chalk.bold(`TOTAL (${sorted.length})`), 10),
     col(chalk.bold(formatNumber(totalReqs)), 6, "right"),
     col(chalk.bold(formatNumber(totalInput)), 11, "right"),
     col(chalk.bold(formatNumber(totalOutput)), 10, "right"),
-    col(chalk.bold(formatNumber(totalCache)), 11, "right"),
-    col("", 10, "right"),
+    col(chalk.bold(formatNumber(totalCacheR)), 11, "right"),
+    col(chalk.bold(`${overallHitRate.toFixed(0)}%`), 9, "right"),
+    col(chalk.bold(formatCurrency(totalCacheCost)), 10, "right"),
     col(chalk.bold(formatCurrency(totalSpend)), 10, "right"),
     col("", 20),
-    col("", 38),
+    col("", 30),
   ]);
   console.log(renderTable(tableRows, widths));
 
